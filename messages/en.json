@@ -1,0 +1,121 @@
+{
+  "Nav": {
+    "login": "Log in",
+    "signup": "Sign up",
+    "home": "Home",
+    "explore": "Explore",
+    "notifications": "Notifications",
+    "messages": "Messages",
+    "profile": "Profile"
+  },
+  "Landing": {
+    "badge": "Now in early access",
+    "headline": "Where every thought finds its pulse",
+    "sub": "Join a focused, fast, and beautifully simple space to share what's on your mind.",
+    "login": "Log in",
+    "signup": "Create account",
+    "legal": "By signing up, you agree to our Terms and Privacy Policy."
+  },
+  "Home": {
+    "feed": "For you",
+    "whatsHappening": "What's happening?",
+    "post": "Post",
+    "search": "Search Pulse",
+    "trends": "Trends for you",
+    "whoToFollow": "Who to follow",
+    "follow": "Follow",
+    "emptyTitle": "No posts yet",
+    "emptySubtitle": "When people you follow post, you'll see it here."
+  },
+  
+  "auth": {
+    "signup": {
+      "title": "Create your account",
+      "subtitle": "Join Y and start sharing your moments",
+      "fields": {
+        "name": "Full name",
+        "username": "Username",
+        "email": "Email",
+        "password": "Password",
+        "confirmPassword": "Confirm password"
+      },
+      "placeholders": {
+        "name": "John Doe",
+        "username": "johndoe",
+        "email": "you@example.com",
+        "password": "At least 8 characters",
+        "confirmPassword": "Re-enter your password"
+      },
+      "errors": {
+        "nameRequired": "Name is required",
+        "usernameRequired": "Username is required",
+        "emailInvalid": "Enter a valid email address",
+        "passwordShort": "Password must be at least 8 characters",
+        "passwordMismatch": "Passwords do not match"
+      },
+      "next": "Continue",
+      "back": "Back",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in"
+    }
+  },
+  
+  "auth": {
+    "signin": {
+      "title": "Welcome back",
+      "subtitle": "Sign in to continue to Y",
+      "fields": {
+        "identifier": "Email or username",
+        "password": "Password"
+      },
+      "placeholders": {
+        "identifier": "you@example.com",
+        "password": "Enter your password"
+      },
+      "errors": {
+        "identifierRequired": "Email or username is required",
+        "passwordRequired": "Password is required",
+        "invalidCredentials": "Incorrect email/username or password"
+      },
+      "rememberMe": "Remember me",
+      "forgotPassword": "Forgot password?",
+      "submit": "Sign in",
+      "noAccount": "Don't have an account?",
+      "signUp": "Sign up"
+    },
+    "signup": {
+      "title": "Create your account",
+      "subtitle": "Join Y and start sharing your moments",
+      "fields": {
+        "name": "Full name",
+        "username": "Username",
+        "email": "Email",
+        "password": "Password",
+        "confirmPassword": "Confirm password"
+      },
+      "placeholders": {
+        "name": "John Doe",
+        "username": "johndoe",
+        "email": "you@example.com",
+        "password": "At least 8 characters",
+        "confirmPassword": "Re-enter your password"
+      },
+      "errors": {
+        "nameRequired": "Name is required",
+        "usernameRequired": "Username is required",
+        "emailInvalid": "Enter a valid email address",
+        "passwordShort": "Password must be at least 8 characters",
+        "passwordMismatch": "Passwords do not match"
+      },
+      "next": "Continue",
+      "back": "Back",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in"
+    }
+  }
+
+
+
+}

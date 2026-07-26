@@ -1,0 +1,87 @@
+{
+  "Nav": {
+    "login": "ورود",
+    "signup": "ثبت‌نام",
+    "home": "خانه",
+    "explore": "کشف",
+    "notifications": "اعلان‌ها",
+    "messages": "پیام‌ها",
+    "profile": "پروفایل"
+  },
+  "Landing": {
+    "badge": "اکنون در دسترسی زودهنگام",
+    "headline": "جایی که هر فکر، ضربان خودش را پیدا می‌کند",
+    "sub": "به فضایی سریع، متمرکز و زیبا برای اشتراک افکارت بپیوند.",
+    "login": "ورود",
+    "signup": "ساخت حساب",
+    "legal": "با ثبت‌نام، شرایط استفاده و حریم خصوصی را می‌پذیری."
+  },
+  "Home": {
+    "feed": "برای شما",
+    "whatsHappening": "چه خبر؟",
+    "post": "ارسال",
+    "search": "جستجو در Pulse",
+    "trends": "ترندهای شما",
+    "whoToFollow": "پیشنهاد دنبال‌کردن",
+    "follow": "دنبال کردن",
+    "emptyTitle": "هنوز پستی نیست",
+    "emptySubtitle": "وقتی افرادی که دنبال می‌کنی پست بگذارند، اینجا می‌بینی."
+  },
+ 
+  "auth": {
+    "signin": {
+      "title": "خوش برگشتی",
+      "subtitle": "برای ادامه به Y وارد حساب خود شوید",
+      "fields": {
+        "identifier": "ایمیل یا نام کاربری",
+        "password": "رمز عبور"
+      },
+      "placeholders": {
+        "identifier": "you@example.com",
+        "password": "رمز عبور خود را وارد کنید"
+      },
+      "errors": {
+        "identifierRequired": "وارد کردن ایمیل یا نام کاربری الزامی است",
+        "passwordRequired": "وارد کردن رمز عبور الزامی است",
+        "invalidCredentials": "ایمیل/نام کاربری یا رمز عبور اشتباه است"
+      },
+      "rememberMe": "مرا به خاطر بسپار",
+      "forgotPassword": "رمز عبور را فراموش کرده‌اید؟",
+      "submit": "ورود",
+      "noAccount": "حساب کاربری ندارید؟",
+      "signUp": "ثبت‌نام"
+    },
+    "signup": {
+      "title": "حساب کاربری خود را بسازید",
+      "subtitle": "به Y بپیوندید و لحظه‌های خود را به اشتراک بگذارید",
+      "fields": {
+        "name": "نام کامل",
+        "username": "نام کاربری",
+        "email": "ایمیل",
+        "password": "رمز عبور",
+        "confirmPassword": "تکرار رمز عبور"
+      },
+      "placeholders": {
+        "name": "محمد محمدی",
+        "username": "mohammad",
+        "email": "you@example.com",
+        "password": "حداقل ۸ کاراکتر",
+        "confirmPassword": "رمز عبور را دوباره وارد کنید"
+      },
+      "errors": {
+        "nameRequired": "وارد کردن نام الزامی است",
+        "usernameRequired": "وارد کردن نام کاربری الزامی است",
+        "emailInvalid": "یک ایمیل معتبر وارد کنید",
+        "passwordShort": "رمز عبور باید حداقل ۸ کاراکتر باشد",
+        "passwordMismatch": "رمزهای عبور مطابقت ندارند"
+      },
+      "next": "ادامه",
+      "back": "بازگشت",
+      "submit": "ایجاد حساب",
+      "haveAccount": "از قبل حساب کاربری دارید؟",
+      "signIn": "ورود"
+    }
+  }
+}
+
+
