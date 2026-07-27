@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff, Mail, User, Lock, ArrowRight, ArrowLeft } from "lucide-react";
@@ -9,7 +10,10 @@ import Link from "next/link";
 type Step = 1 | 2;
 
 export default function SignupForm() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const t = useTranslations("auth.signup");
+  const router = useRouter();
 
   const [step, setStep] = useState<Step>(1);
   const [showPassword, setShowPassword] = useState(false);
@@ -57,12 +61,40 @@ export default function SignupForm() {
     setErrors({});
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setServerError(null);
+
     if (!validateStep2()) return;
-    // TODO: submit to API
-    console.log("submit", form);
-  };
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: form.name,
+          username: form.username,
+          email: form.email,
+          password: form.password,
+          confirmPassword: form.confirmPassword,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setServerError(data.error ?? "Signup failed.");
+        return;
+      }
+
+      router.push("/");
+    } catch {
+      setServerError("Network error. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <div className="w-full max-w-md mx-auto">
@@ -90,6 +122,10 @@ export default function SignupForm() {
             }`}
           />
         </div>
+
+        {serverError && (
+          <p className="mb-4 text-sm text-red-400 text-center">{serverError}</p>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <AnimatePresence mode="wait">
@@ -255,9 +291,10 @@ export default function SignupForm() {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 py-2.5 text-sm font-medium text-white hover:opacity-90 transition"
+                    disabled={isSubmitting}
+                    className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 py-2.5 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-60"
                   >
-                    {t("submit")}
+                    {isSubmitting ? t("submitting") : t("submit")}
                   </button>
                 </div>
               </motion.div>
