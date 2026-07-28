@@ -7,7 +7,10 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    // اینجا فقط باید از متغیرهای process.env استفاده کنید
-    url: process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL,
+    // برای اجرای اپلیکیشن و کوئری‌ها (Pooler)
+    url: process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
+    
+    // برای انجام Migration و تغییرات Schema (اتصال مستقیم)
+    // اگر این نباشد، دستور migrate dev خطا می‌دهد
   },
 });
