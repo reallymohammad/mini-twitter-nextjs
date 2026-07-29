@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useLocale } from "next-intl";
+
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 
 export default function SignInForm() {
@@ -22,6 +24,8 @@ export default function SignInForm() {
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const locale = useLocale();
+
 
   function validate() {
     const next: typeof errors = {};
@@ -47,6 +51,7 @@ export default function SignInForm() {
           emailOrUsername: identifier,
           password,
           remember,
+          locale,
         }),
       });
 
@@ -59,7 +64,7 @@ export default function SignInForm() {
         return;
       }
 
-      router.push("/");
+      router.push(data.redirectTo);
     } catch {
       const msg = "Network error. Please try again.";
       setServerError(msg);
