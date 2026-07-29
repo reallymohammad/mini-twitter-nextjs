@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 interface InitialData {
   fullName: string;
@@ -22,34 +23,73 @@ interface Props {
 export default function EditProfileForm({ locale, username, initialData }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<InitialData>(initialData);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState(initialData.avatarUrl);
+  const [coverPreview, setCoverPreview] = useState(initialData.coverImageUrl);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   function set(field: keyof InitialData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function handleFileChange(
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: "avatar" | "cover"
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const preview = URL.createObjectURL(file);
+    if (type === "avatar") {
+      setAvatarFile(file);
+      setAvatarPreview(preview);
+    } else {
+      setCoverFile(file);
+      setCoverPreview(preview);
+    }
+  }
+
+  async function uploadFile(file: File, type: "avatar" | "cover"): Promise<string> {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("type", type);
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Upload failed");
+    return data.url as string;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
+    setUploading(true);
     setError("");
 
-    const res = await fetch("/api/user/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
+    try {
+      const updated = { ...form };
 
-    const data = await res.json();
-    setSaving(false);
+      if (avatarFile) updated.avatarUrl = await uploadFile(avatarFile, "avatar");
+      if (coverFile) updated.coverImageUrl = await uploadFile(coverFile, "cover");
 
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong");
-      return;
+      const res = await fetch("/api/user/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Something went wrong");
+
+      router.push(`/${locale}/${username}`);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setUploading(false);
     }
-
-    router.push(`/${locale}/${username}`);
-    router.refresh();
   }
 
   const inputClass =
@@ -58,6 +98,49 @@ export default function EditProfileForm({ locale, username, initialData }: Props
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Cover + Avatar upload area */}
+      <div className="relative mb-12">
+        {/* Cover */}
+        <div
+          className="relative w-full h-32 bg-muted rounded-xl overflow-hidden cursor-pointer group"
+          onClick={() => coverInputRef.current?.click()}
+        >
+          {coverPreview ? (
+            <Image src={coverPreview} alt="Cover" fill className="object-cover" />
+          ) : null}
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+            <CameraIcon />
+          </div>
+          <input
+            ref={coverInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFileChange(e, "cover")}
+          />
+        </div>
+
+        {/* Avatar */}
+        <div
+          className="absolute -bottom-10 left-4 w-20 h-20 rounded-full border-4 border-background bg-muted overflow-hidden cursor-pointer group"
+          onClick={() => avatarInputRef.current?.click()}
+        >
+          {avatarPreview ? (
+            <Image src={avatarPreview} alt="Avatar" fill className="object-cover" />
+          ) : null}
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+            <CameraIcon size={16} />
+          </div>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFileChange(e, "avatar")}
+          />
+        </div>
+      </div>
+
       {/* Full Name */}
       <div>
         <div className="flex justify-between">
@@ -121,39 +204,15 @@ export default function EditProfileForm({ locale, username, initialData }: Props
         />
       </div>
 
-      {/* Avatar URL */}
-      <div>
-        <label className={labelClass}>Avatar URL</label>
-        <input
-          className={inputClass}
-          value={form.avatarUrl}
-          placeholder="https://..."
-          onChange={(e) => set("avatarUrl", e.target.value)}
-        />
-      </div>
-
-      {/* Cover Image URL */}
-      <div>
-        <label className={labelClass}>Cover image URL</label>
-        <input
-          className={inputClass}
-          value={form.coverImageUrl}
-          placeholder="https://..."
-          onChange={(e) => set("coverImageUrl", e.target.value)}
-        />
-      </div>
-
-      {/* Error */}
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      {/* Actions */}
       <div className="flex gap-3 pt-2">
         <button
           type="submit"
-          disabled={saving}
+          disabled={uploading}
           className="px-5 py-2 text-sm font-medium rounded-full bg-foreground text-background hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {saving ? "Saving…" : "Save"}
+          {uploading ? "Uploading…" : "Save"}
         </button>
         <button
           type="button"
@@ -164,5 +223,23 @@ export default function EditProfileForm({ locale, username, initialData }: Props
         </button>
       </div>
     </form>
+  );
+}
+
+function CameraIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="white"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
   );
 }
