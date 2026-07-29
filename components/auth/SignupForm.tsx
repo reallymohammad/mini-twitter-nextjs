@@ -4,7 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, Mail, User, Lock, ArrowRight, ArrowLeft } from "lucide-react";
+import { useLocale } from "next-intl";
+import {
+  Eye,
+  EyeOff,
+  Mail,
+  User,
+  Lock,
+  ArrowRight,
+  ArrowLeft,
+} from "lucide-react";
 import Link from "next/link";
 
 type Step = 1 | 2;
@@ -18,6 +27,7 @@ export default function SignupForm() {
   const [step, setStep] = useState<Step>(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const locale = useLocale();
 
   const [form, setForm] = useState({
     name: "",
@@ -37,15 +47,18 @@ export default function SignupForm() {
   const validateStep1 = () => {
     const newErrors: Record<string, string> = {};
     if (!form.name.trim()) newErrors.name = t("errors.nameRequired");
-    if (!form.username.trim()) newErrors.username = t("errors.usernameRequired");
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) newErrors.email = t("errors.emailInvalid");
+    if (!form.username.trim())
+      newErrors.username = t("errors.usernameRequired");
+    if (!/^\S+@\S+\.\S+$/.test(form.email))
+      newErrors.email = t("errors.emailInvalid");
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const validateStep2 = () => {
     const newErrors: Record<string, string> = {};
-    if (form.password.length < 8) newErrors.password = t("errors.passwordShort");
+    if (form.password.length < 8)
+      newErrors.password = t("errors.passwordShort");
     if (form.password !== form.confirmPassword)
       newErrors.confirmPassword = t("errors.passwordMismatch");
     setErrors(newErrors);
@@ -78,6 +91,7 @@ export default function SignupForm() {
           email: form.email,
           password: form.password,
           confirmPassword: form.confirmPassword,
+          locale,
         }),
       });
 
@@ -88,7 +102,7 @@ export default function SignupForm() {
         return;
       }
 
-      router.push("/");
+      router.push(data.redirectTo);
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
@@ -113,12 +127,16 @@ export default function SignupForm() {
         <div className="flex items-center gap-2 mb-8">
           <div
             className={`h-1.5 flex-1 rounded-full transition-colors ${
-              step >= 1 ? "bg-gradient-to-r from-indigo-500 to-violet-500" : "bg-white/10"
+              step >= 1
+                ? "bg-gradient-to-r from-indigo-500 to-violet-500"
+                : "bg-white/10"
             }`}
           />
           <div
             className={`h-1.5 flex-1 rounded-full transition-colors ${
-              step >= 2 ? "bg-gradient-to-r from-violet-500 to-fuchsia-500" : "bg-white/10"
+              step >= 2
+                ? "bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                : "bg-white/10"
             }`}
           />
         </div>
@@ -176,7 +194,9 @@ export default function SignupForm() {
                     />
                   </div>
                   {errors.username && (
-                    <p className="mt-1 text-xs text-red-400">{errors.username}</p>
+                    <p className="mt-1 text-xs text-red-400">
+                      {errors.username}
+                    </p>
                   )}
                 </div>
 
@@ -245,7 +265,9 @@ export default function SignupForm() {
                     </button>
                   </div>
                   {errors.password && (
-                    <p className="mt-1 text-xs text-red-400">{errors.password}</p>
+                    <p className="mt-1 text-xs text-red-400">
+                      {errors.password}
+                    </p>
                   )}
                 </div>
 
@@ -259,7 +281,9 @@ export default function SignupForm() {
                     <input
                       type={showConfirm ? "text" : "password"}
                       value={form.confirmPassword}
-                      onChange={(e) => handleChange("confirmPassword", e.target.value)}
+                      onChange={(e) =>
+                        handleChange("confirmPassword", e.target.value)
+                      }
                       className="w-full rounded-xl bg-white/5 border border-white/10 ps-10 pe-10 py-2.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20 transition"
                       placeholder={t("placeholders.confirmPassword")}
                     />
@@ -276,7 +300,9 @@ export default function SignupForm() {
                     </button>
                   </div>
                   {errors.confirmPassword && (
-                    <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>
+                    <p className="mt-1 text-xs text-red-400">
+                      {errors.confirmPassword}
+                    </p>
                   )}
                 </div>
 
@@ -304,7 +330,10 @@ export default function SignupForm() {
 
         <p className="mt-6 text-center text-sm text-white/50">
           {t("haveAccount")}{" "}
-          <Link href="/signin" className="text-violet-400 hover:text-violet-300 transition">
+          <Link
+            href="/signin"
+            className="text-violet-400 hover:text-violet-300 transition"
+          >
             {t("signIn")}
           </Link>
         </p>
