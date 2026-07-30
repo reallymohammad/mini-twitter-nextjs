@@ -1,54 +1,49 @@
-// components/profile/ProfileTabs.tsx
 import Link from "next/link";
-import PostCard from "./PostCard";
-import EmptyState from "./EmptyState";
+import { PostWithRelations } from "@/lib/types/post";
+import PostCard from "@/components/post/PostCard";
 
-interface Post {
-  id: string;
-  content: string;
-  createdAt: Date;
-  _count: { likes: number };
-}
+const TABS = [
+  { key: "posts", label: "Posts" },
+  { key: "replies", label: "Replies" },
+  { key: "likes", label: "Likes" },
+];
 
 interface Props {
   username: string;
   locale: string;
   activeTab: string;
-  posts: Post[];
+  posts: PostWithRelations[];
+  currentUserId?: string;
 }
 
-const TABS = ["posts", "replies", "media", "likes"] as const;
-
-export default function ProfileTabs({ username, locale, activeTab, posts }: Props) {
+export default function ProfileTabs({ username, locale, activeTab, posts, currentUserId }: Props) {
   return (
     <div>
       {/* Tab bar */}
       <div className="flex border-b border-border">
-        {TABS.map((tab) => (
+        {TABS.map((t) => (
           <Link
-            key={tab}
-            href={`/${locale}/${username}?tab=${tab}`}
-            className={`flex-1 py-3 text-sm font-medium text-center capitalize transition-colors hover:bg-muted/50 ${
-              activeTab === tab
-                ? "border-b-2 border-foreground text-foreground"
+            key={t.key}
+            href={`/${locale}/${username}?tab=${t.key}`}
+            className={`flex-1 text-center py-3 text-sm font-medium transition-colors hover:bg-muted/40 ${
+              activeTab === t.key
+                ? "border-b-2 border-indigo-500 text-foreground"
                 : "text-muted-foreground"
             }`}
           >
-            {tab}
+            {t.label}
           </Link>
         ))}
       </div>
 
-      {/* Content */}
-      <div className="divide-y divide-border">
-        {activeTab === "replies" || activeTab === "media" ? (
-          <EmptyState tab={activeTab} />
-        ) : posts.length === 0 ? (
-          <EmptyState tab={activeTab} />
-        ) : (
-          posts.map((post) => <PostCard key={post.id} post={post} />)
-        )}
-      </div>
+      {/* Posts */}
+      {posts.length === 0 ? (
+        <p className="text-center text-muted-foreground text-sm py-12">Nothing here yet.</p>
+      ) : (
+        posts.map((post) => (
+          <PostCard key={post.id} post={post} currentUserId={currentUserId} locale={locale} />
+        ))
+      )}
     </div>
   );
 }
