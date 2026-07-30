@@ -1,36 +1,46 @@
-import { getCurrentUser } from "@/lib/auth";
-import { getHomeFeed } from "@/lib/posts";
-import { redirect } from "next/navigation";
-import HomeFeed from "@/components/home/HomeFeed";
-import PostComposer from "@/components/home/PostComposer";
-import RightSidebar from "@/components/home/RightSidebar";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/session";
+import Composer from "@/components/post/Composer";
+import PostCard from "@/components/post/PostCard";
+import { PostWithRelations } from "@/lib/types/post";
 
-export default async function HomePage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/signin");
+const postInclude = {
+  author: { select: { id: true, username: true, fullName: true, avatarUrl: true, badge: true } },
+  _count: { select: { likes: true, replies: true, retweets: true } },
+  retweetOf: {
+    include: {
+      author: { select: { id: true, username: true, fullName: true, avatarUrl: true, badge: true } },
+      _count: { select: { likes: true, replies: true, retweets: true } },
+    },
+  },
+} as const;
 
-  const posts = await getHomeFeed(user.id);
+export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const currentUser = await getCurrentUser();
+
+  const posts = (await prisma.post.findMany({
+    where: { type: { in: ["POST", "RETWEET", "QUOTE"] } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: {
+      ...postInclude,
+      likes: currentUser ? { where: { userId: currentUser.id } } : false,
+    },
+  })) as PostWithRelations[];
 
   return (
-    <div className="flex min-h-screen max-w-6xl mx-auto">
-      {/* Center feed */}
-      <main className="flex-1 border-x border-border min-h-screen">
-        <div className="sticky top-0 z-10 bg-background/80 backdrop-blur border-b border-border px-4 py-3">
-          <h1 className="font-bold text-xl">Home</h1>
-        </div>
-        <PostComposer
-          authorId={user.id}
-          avatarUrl={user.avatarUrl ?? undefined}
-        />
-        <HomeFeed initialPosts={posts} currentUserId={user.id} />
-      </main>
-
-      {/* Right sidebar */}
-      <aside className="hidden lg:block w-80 pl-6 pt-4">
-        <div className="sticky top-4">
-          <RightSidebar user={user} />
-        </div>
-      </aside>
-    </div>
+    <main className="min-h-screen bg-background">
+      <div className="max-w-2xl mx-auto border-x border-border">
+        <Composer authorAvatarUrl={currentUser?.avatarUrl ?? undefined} />
+        {posts.length === 0 ? (
+          <p className="text-center text-muted-foreground text-sm py-12">No posts yet.</p>
+        ) : (
+          posts.map((p) => (
+            <PostCard key={p.id} post={p} currentUserId={currentUser?.id} locale={locale} />
+          ))
+        )}
+      </div>
+    </main>
   );
 }
