@@ -1,40 +1,82 @@
-import Avatar from "@/components/ui/Avatar";
-import { MockPost } from "@/lib/mock/posts";
-import { Heart, MessageCircle, Repeat2, Share } from "lucide-react";
+"use client";
 
-export default function PostCard({ post }: { post: MockPost }) {
+import Image from "next/image";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import type { PostWithRelations } from "@/types/post";
+import PostActions from "./PostActions";
+
+interface Props {
+  post: PostWithRelations;
+  currentUserId: string;
+  onUpdate: (post: PostWithRelations) => void;
+  onNewPost: (post: PostWithRelations) => void;
+  isQuoted?: boolean;
+}
+
+export default function PostCard({ post, currentUserId, onUpdate, onNewPost, isQuoted }: Props) {
+  const { locale } = useParams<{ locale: string }>();
+
+  const displayPost =
+    post.type === "RETWEET" && post.originalPost ? post.originalPost : post;
+
   return (
-    <article className="flex gap-3 px-4 py-4 border-b border-neutral-100 dark:border-neutral-900 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40 transition-colors cursor-pointer">
-      <Avatar name={post.name} gradient={post.avatarColor} size={44} />
-
-      <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <div className="flex items-center gap-1.5 text-sm min-w-0">
-          <span className="font-bold truncate">{post.name}</span>
-          <span className="text-neutral-500 truncate">{post.handle}</span>
-          <span className="text-neutral-400">·</span>
-          <span className="text-neutral-400 shrink-0">{post.time}</span>
-        </div>
-
-        <p className="text-[15px] leading-relaxed text-neutral-800 dark:text-neutral-200">
-          {post.content}
+    <article className={`px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${isQuoted ? "border rounded-xl mt-2" : ""}`}>
+      {post.type === "RETWEET" && (
+        <p className="text-xs text-muted-foreground mb-1 ml-10">
+          🔁 {post.author.name} retweeted
         </p>
+      )}
 
-        <div className="flex items-center justify-between max-w-md mt-2 -ms-2">
-          <button className="flex items-center gap-1.5 text-neutral-500 hover:text-violet-500 group px-2 py-1.5 rounded-full hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors">
-            <MessageCircle className="w-[18px] h-[18px]" />
-            <span className="text-xs">{post.comments}</span>
-          </button>
-          <button className="flex items-center gap-1.5 text-neutral-500 hover:text-emerald-500 px-2 py-1.5 rounded-full hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">
-            <Repeat2 className="w-[18px] h-[18px]" />
-            <span className="text-xs">{post.reposts}</span>
-          </button>
-          <button className="flex items-center gap-1.5 text-neutral-500 hover:text-rose-500 px-2 py-1.5 rounded-full hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors">
-            <Heart className="w-[18px] h-[18px]" />
-            <span className="text-xs">{post.likes}</span>
-          </button>
-          <button className="flex items-center text-neutral-500 hover:text-violet-500 px-2 py-1.5 rounded-full hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors">
-            <Share className="w-[18px] h-[18px]" />
-          </button>
+      <div className="flex gap-3">
+        <Link href={`/${locale}/${displayPost.author.username}`} className="shrink-0">
+          {displayPost.author.avatarUrl ? (
+            <Image
+              src={displayPost.author.avatarUrl}
+              alt={displayPost.author.name ?? ""}
+              width={40}
+              height={40}
+              className="rounded-full w-10 h-10 object-cover"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-muted" />
+          )}
+        </Link>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 flex-wrap">
+            <Link
+              href={`/${locale}/${displayPost.author.username}`}
+              className="font-semibold hover:underline truncate"
+            >
+              {displayPost.author.name}
+            </Link>
+            <span className="text-muted-foreground text-sm">
+              @{displayPost.author.username}
+            </span>
+          </div>
+
+          <p className="mt-1 text-sm whitespace-pre-wrap break-words">{displayPost.content}</p>
+
+          {/* Quoted post */}
+          {post.type === "QUOTE" && post.quotedPost && (
+            <PostCard
+              post={post.quotedPost}
+              currentUserId={currentUserId}
+              onUpdate={onUpdate}
+              onNewPost={onNewPost}
+              isQuoted
+            />
+          )}
+
+          {!isQuoted && (
+            <PostActions
+              post={displayPost}
+              currentUserId={currentUserId}
+              onUpdate={onUpdate}
+              onNewPost={onNewPost}
+            />
+          )}
         </div>
       </div>
     </article>

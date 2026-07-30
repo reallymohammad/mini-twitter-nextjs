@@ -1,25 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser } from "@/lib/auth";
 
-export async function POST(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+const postInclude = {
+  author: { select: { id: true, username: true, name: true, avatarUrl: true } },
+  likes: { select: { userId: true } },
+  retweets: { select: { authorId: true } },
+  replies: { select: { id: true } },
+} as const;
+
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { id: postId } = await params;
 
-  await prisma.like.upsert({
-    where: { userId_postId: { userId: user.id, postId } },
-    create: { userId: user.id, postId },
-    update: {},
+  const existing = await prisma.like.findUnique({
+    where: { userId_postId: { userId: user.id, postId: params.id } },
   });
-  return NextResponse.json({ liked: true });
-}
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { id: postId } = await params;
+  if (existing) {
+    await prisma.like.delete({
+      where: { userId_postId: { userId: user.id, postId: params.id } },
+    });
+  } else {
+    await prisma.like.create({ data: { userId: user.id, postId: params.id } });
+  }
 
-  await prisma.like.deleteMany({ where: { userId: user.id, postId } });
-  return NextResponse.json({ liked: false });
+  const post = await prisma.post.findUnique({ where: { id: params.id }, include: postInclude });
+  return NextResponse.json(post);
 }
