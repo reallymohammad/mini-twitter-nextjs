@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import { PostWithRelations } from "@/lib/types/post";
+import Composer from "@/components/post/Composer";
 
 interface Props {
   params: Promise<{ locale: string; username: string }>;
@@ -11,11 +12,27 @@ interface Props {
 }
 
 const postInclude = {
-  author: { select: { id: true, username: true, fullName: true, avatarUrl: true, badge: true } },
+  author: {
+    select: {
+      id: true,
+      username: true,
+      fullName: true,
+      avatarUrl: true,
+      badge: true,
+    },
+  },
   _count: { select: { likes: true, replies: true, retweets: true } },
   retweetOf: {
     include: {
-      author: { select: { id: true, username: true, fullName: true, avatarUrl: true, badge: true } },
+      author: {
+        select: {
+          id: true,
+          username: true,
+          fullName: true,
+          avatarUrl: true,
+          badge: true,
+        },
+      },
       _count: { select: { likes: true, replies: true, retweets: true } },
     },
   },
@@ -99,6 +116,14 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           currentUserId={currentUser?.id}
           locale={locale}
         />
+        {isOwner && (
+          <Composer
+            authorAvatarUrl={currentUser?.avatarUrl ?? undefined}
+            placeholder="Post to your profile..."
+            type="POST"
+          />
+        )}
+
         <ProfileTabs
           username={username}
           locale={locale}
