@@ -116,14 +116,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           currentUserId={currentUser?.id}
           locale={locale}
         />
-        {isOwner && (
-          <Composer
-            authorAvatarUrl={currentUser?.avatarUrl ?? undefined}
-            placeholder="Post to your profile..."
-            type="POST"
-          />
-        )}
-
+      
         <ProfileTabs
           username={username}
           locale={locale}
