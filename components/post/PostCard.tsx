@@ -72,7 +72,7 @@ export default function PostCard({ post, currentUserId, locale }: Props) {
             </div>
           )}
 
-          {/* Quote embed */}
+          {/* Quote embed — only for QUOTE type */}
           {post.type === "QUOTE" && post.retweetOf && (
             <div className="mt-2 border border-border rounded-xl p-3 text-sm">
               <div className="flex items-center gap-1 mb-1">
@@ -83,7 +83,7 @@ export default function PostCard({ post, currentUserId, locale }: Props) {
             </div>
           )}
 
-          <PostActions post={isRetweet && post.retweetOf ? { ...post.retweetOf, likes: post.likes } as PostWithRelations : post} currentUserId={currentUserId} />
+          <PostActions post={displayPost} currentUserId={currentUserId} />
         </div>
       </div>
     </article>

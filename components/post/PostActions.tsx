@@ -14,7 +14,10 @@ export default function PostActions({ post, currentUserId, onReply }: Props) {
     currentUserId ? post.likes.some((l) => l.userId === currentUserId) : false
   );
   const [likeCount, setLikeCount] = useState(post._count.likes);
-  const [retweeted, setRetweeted] = useState(false);
+  
+  const [retweeted, setRetweeted] = useState(
+    currentUserId ? post.retweets.some((r) => r.authorId === currentUserId && r.type === "RETWEET") : false
+  );
   const [retweetCount, setRetweetCount] = useState(post._count.retweets);
 
   async function toggleLike() {
