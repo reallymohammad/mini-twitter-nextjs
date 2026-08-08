@@ -27,39 +27,41 @@
     "emptyTitle": "No posts yet",
     "emptySubtitle": "When people you follow post, you'll see it here."
   },
+
   
-  "auth": {
-    "signup": {
-      "title": "Create your account",
-      "subtitle": "Join Y and start sharing your moments",
-      "fields": {
-        "name": "Full name",
-        "username": "Username",
-        "email": "Email",
-        "password": "Password",
-        "confirmPassword": "Confirm password"
-      },
-      "placeholders": {
-        "name": "John Doe",
-        "username": "johndoe",
-        "email": "you@example.com",
-        "password": "At least 8 characters",
-        "confirmPassword": "Re-enter your password"
-      },
-      "errors": {
-        "nameRequired": "Name is required",
-        "usernameRequired": "Username is required",
-        "emailInvalid": "Enter a valid email address",
-        "passwordShort": "Password must be at least 8 characters",
-        "passwordMismatch": "Passwords do not match"
-      },
-      "next": "Continue",
-      "back": "Back",
-      "submit": "Create account",
-      "haveAccount": "Already have an account?",
-      "signIn": "Sign in"
+  "PostDropdown": {
+    "pin": "Pin post",
+    "unpin": "Unpin post",
+    "delete": "Delete post",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied!",
+    "pinnedText": "Pinned",
+    "retweeted": "retweeted",
+    "replyingToPost": "Replying to a post",
+    "deleteConfirmTitle": "Delete post?",
+    "deleteConfirmDescription": "This can't be undone and it will be removed from your profile, the timeline of any accounts that follow you, and from search results.",
+    "deleteConfirmAction": "Delete",
+    "deleting": "Deleting...",
+    "cancel": "Cancel"
+  },
+
+  
+
+ "compose": {
+    "placeholder": "What's happening?",
+    "submit": "Post",
+    "success": "Post sent successfully",
+    "error": {
+      "notLoggedIn": "You must be logged in to post",
+      "fileSize": "File size must not exceed 5MB",
+      "fileType": "Only image files are allowed",
+      "uploadFailed": "Image upload failed",
+      "postFailed": "Failed to create post",
+      "unexpected": "Unexpected error"
     }
   },
+  
+ 
   
   "auth": {
     "signin": {

@@ -1,100 +1,172 @@
+// components/post/PostCard.tsx
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { PostWithRelations } from "@/lib/types/post";
-import PostActions from "./PostActions";
-import BadgeIcon from "@/components/ui/BadgeIcon";
+import { MessageCircle, Pin, Repeat2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
-interface Props {
+import { PostWithRelations } from "@/types";
+import PostActions from "./PostActions";
+import PostDropdown from "./PostDropdown";
+
+interface PostCardProps {
   post: PostWithRelations;
   currentUserId?: string;
   locale: string;
+  redirectAfterDelete?: boolean;
+  fallbackHref?: string;
 }
 
-export default function PostCard({ post, currentUserId, locale }: Props) {
+export default function PostCard({
+  post,
+  currentUserId,
+  locale,
+  redirectAfterDelete = false,
+  fallbackHref = `/${locale}`,
+}: PostCardProps) {
+  const router = useRouter();
+  const t = useTranslations("PostDropdown");
+
   const isRetweet = post.type === "RETWEET";
   const displayPost = isRetweet && post.retweetOf ? post.retweetOf : post;
   const displayAuthor = displayPost.author ?? post.author;
 
+  // بررسی پین بودن پست بر اساس رابطه pinnedBy در دیتابیس شما
+  // چک می‌کنیم آیا این پست توسط نویسنده‌اش (یا کاربر فعلی در صورت نیاز) پین شده است یا خیر
+  const isPinned = Boolean(displayPost.pinnedBy?.some((pin) => pin.userId === currentUserId));
+
+  const handleCardClick = () => {
+    router.push(`/${locale}/status/${displayPost.id}`);
+  };
+
   return (
-    <article className="border-b border-border px-4 py-3 hover:bg-muted/30 transition-colors">
-      {/* Retweet label */}
-      {isRetweet && (
-        <p className="text-xs text-muted-foreground mb-1.5 ml-8 flex items-center gap-1">
-          <RetweetSmallIcon />
-          <Link href={`/${locale}/${post.author.username}`} className="hover:underline">
-            {post.author.fullName}
-          </Link>{" "}
-          retweeted
-        </p>
+    <article
+      onClick={handleCardClick}
+      className="block cursor-pointer border-b border-border p-3 transition hover:bg-accent/40"
+    >
+      {/* هدر پست پین‌شده (با آیکون پین کج توییتر) */}
+      {isPinned && (
+        <div className="mb-1.5 ml-8 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Pin className="size-3.5 -rotate-45 fill-current text-indigo-500" />
+          <span>{t("pinnedText")}</span>
+        </div>
       )}
 
-      {/* Reply label */}
+      {/* هدر ریتوییت */}
+      {isRetweet && (
+        <div className="mb-1 ml-8 flex items-center gap-2 text-xs text-muted-foreground">
+          <Repeat2 className="size-3.5" />
+          <Link
+            href={`/${locale}/${post.author.username}`}
+            onClick={(e) => e.stopPropagation()}
+            className="font-bold hover:underline"
+          >
+            {post.author.fullName}
+          </Link>
+          <span>{t("retweeted")}</span>
+        </div>
+      )}
+
+      {/* هدر ریپلای */}
       {post.type === "REPLY" && (
-        <p className="text-xs text-muted-foreground mb-1.5 ml-8">
-          Replying to a post
-        </p>
+        <div className="mb-1.5 ml-8 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <MessageCircle className="size-3" />
+          <span>{t("replyingToPost")}</span>
+        </div>
       )}
 
       <div className="flex gap-3">
-        {/* Avatar */}
-        <Link href={`/${locale}/${displayAuthor.username}`} className="shrink-0">
-          <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">
-            {displayAuthor.avatarUrl && (
-              <Image src={displayAuthor.avatarUrl} alt={displayAuthor.username} width={40} height={40} className="object-cover" />
-            )}
-          </div>
-        </Link>
-
-        <div className="flex-1 min-w-0">
-          {/* Author row */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <Link href={`/${locale}/${displayAuthor.username}`} className="font-semibold text-sm hover:underline truncate">
-              {displayAuthor.fullName}
-            </Link>
-            {displayAuthor.badge !== "NONE" && <BadgeIcon badge={displayAuthor.badge} />}
-            <span className="text-muted-foreground text-sm">@{displayAuthor.username}</span>
-            <span className="text-muted-foreground text-xs">·</span>
-            <span className="text-muted-foreground text-xs">
-              {formatDistanceToNow(new Date(displayPost.createdAt), { addSuffix: true })}
-            </span>
-          </div>
-
-          {/* Content */}
-          {displayPost.content && (
-            <p className="text-sm mt-1 whitespace-pre-wrap break-words">{displayPost.content}</p>
-          )}
-
-          {/* Image */}
-          {displayPost.imageUrl && (
-            <div className="mt-2 rounded-xl overflow-hidden border border-border">
-              <Image src={displayPost.imageUrl} alt="Post image" width={500} height={300} className="w-full object-cover max-h-72" />
-            </div>
-          )}
-
-          {/* Quote embed */}
-          {post.type === "QUOTE" && post.retweetOf && (
-            <div className="mt-2 border border-border rounded-xl p-3 text-sm">
-              <div className="flex items-center gap-1 mb-1">
-                <span className="font-semibold">{post.retweetOf.author.fullName}</span>
-                <span className="text-muted-foreground text-xs">@{post.retweetOf.author.username}</span>
+        {/* تصویر آواتار نویسنده */}
+        <div className="shrink-0">
+          <Link
+            href={`/${locale}/${displayAuthor.username}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {displayAuthor.avatarUrl ? (
+              <Image
+                src={displayAuthor.avatarUrl}
+                alt={displayAuthor.username}
+                width={40}
+                height={40}
+                className="size-10 rounded-full object-cover transition-opacity hover:opacity-90"
+              />
+            ) : (
+              <div className="flex size-10 items-center justify-center rounded-full bg-muted font-bold text-muted-foreground">
+                {displayAuthor.username[0]?.toUpperCase()}
               </div>
-              {post.retweetOf.content && <p className="text-muted-foreground">{post.retweetOf.content}</p>}
+            )}
+          </Link>
+        </div>
+
+        {/* محتوای توییت */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <Link
+                href={`/${locale}/${displayAuthor.username}`}
+                onClick={(e) => e.stopPropagation()}
+                className="truncate text-sm font-bold text-foreground hover:underline"
+              >
+                {displayAuthor.fullName}
+              </Link>
+              <span className="text-xs text-muted-foreground">
+                @{displayAuthor.username}
+              </span>
+              <span className="text-xs text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground hover:underline">
+                {formatDistanceToNow(new Date(displayPost.createdAt), {
+                  addSuffix: true,
+                })}
+              </span>
+            </div>
+
+            {/* منوی دراپ‌داون سه نقطه */}
+            <div onClick={(e) => e.stopPropagation()}>
+              <PostDropdown
+                postId={displayPost.id}
+                authorId={displayAuthor.id}
+                currentUserId={currentUserId}
+                locale={locale}
+                isPinned={isPinned}
+                redirectAfterDelete={redirectAfterDelete}
+                fallbackHref={fallbackHref}
+              />
+            </div>
+          </div>
+
+          {displayPost.content && (
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
+              {displayPost.content}
+            </p>
+          )}
+
+          {displayPost.imageUrl && (
+            <div className="mt-2 max-h-[350px] overflow-hidden rounded-xl border border-border">
+              <Image
+                src={displayPost.imageUrl}
+                alt="Post attachment"
+                width={500}
+                height={300}
+                className="h-auto w-full object-cover"
+              />
             </div>
           )}
 
-          <PostActions post={isRetweet && post.retweetOf ? { ...post.retweetOf, likes: post.likes } as PostWithRelations : post} currentUserId={currentUserId} />
+          {/* بخش تعاملی پایین پست */}
+          <div
+            className="mt-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PostActions
+              post={displayPost as any}
+              currentUserId={currentUserId}
+            />
+          </div>
         </div>
       </div>
     </article>
-  );
-}
-
-function RetweetSmallIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
-      <polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
-    </svg>
   );
 }

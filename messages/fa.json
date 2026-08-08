@@ -27,6 +27,50 @@
     "emptyTitle": "هنوز پستی نیست",
     "emptySubtitle": "وقتی افرادی که دنبال می‌کنی پست بگذارند، اینجا می‌بینی."
   },
+
+  
+  "PostDropdown": {
+    "pin": "پین کردن",
+    "unpin": "برداشتن پین",
+    "delete": "حذف پست",
+    "copyLink": "کپی لینک پست",
+    "linkCopied": "لینک کپی شد!",
+    "pinnedText": "پین‌شده",
+    "retweeted": "بازنشر کرد",
+    "replyingToPost": "در پاسخ به یک پست",
+    "deleteConfirmTitle": "حذف پست؟",
+    "deleteConfirmDescription": "این کار قابل بازگشت نیست و پست از پروفایل شما، فید دنبال‌کنندگان و نتایج جستجو حذف خواهد شد.",
+    "deleteConfirmAction": "حذف",
+    "deleting": "در حال حذف...",
+    "cancel": "انصراف"
+    
+  },
+
+  "Composer": {
+    "postPlaceholder": "چه خبر؟",
+    "replyPlaceholder": "پاسخ خود را بنویسید...",
+    "uploadImage": "افزودن تصویر",
+    "uploadFailed": "آپلود تصویر با خطا مواجه شد",
+    "postFailed": "ارسال پست با خطا مواجه شد",
+    "genericError": "خطایی رخ داده است",
+    "loading": "در حال ارسال...",
+    "postButton": "ارسال پست",
+    "replyButton": "پاسخ"
+  },
+
+  "compose": {
+    "placeholder": "چه خبر؟",
+    "submit": "ارسال",
+    "success": "پست ارسال شد",
+    "error": {
+      "notLoggedIn": "برای ارسال پست باید وارد شوید",
+      "fileSize": "حجم فایل نباید بیشتر از ۵ مگابایت باشد",
+      "fileType": "فقط فایل تصویری مجاز است",
+      "uploadFailed": "خطا در آپلود تصویر",
+      "postFailed": "خطا در ارسال پست",
+      "unexpected": "خطای غیرمنتظره"
+    }
+  },
  
   "auth": {
     "signin": {

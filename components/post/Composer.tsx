@@ -1,151 +1,184 @@
+// components/posts/PostCard.tsx
 "use client";
 
-import { useState, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PostType } from "@prisma/client";
+import { formatDistanceToNow } from "date-fns";
+import { MessageCircle, Pin, Repeat2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
-interface Props {
-  authorAvatarUrl?: string;
-  placeholder?: string;
-  type?: PostType;
-  parentPostId?: string;
-  retweetOfId?: string;
-  onSuccess?: () => void;
+import { PostWithRelations } from "@/types";
+import PostActions from "./PostActions";
+import PostDropdown from "./PostDropdown";
+
+interface PostCardProps {
+  post: PostWithRelations;
+  currentUserId?: string;
+  locale: string;
 }
 
-export default function Composer({
-  authorAvatarUrl,
-  placeholder = "What's happening?",
-  type = "POST",
-  parentPostId,
-  retweetOfId,
-  onSuccess,
-}: Props) {
+export default function PostCard({
+  post,
+  currentUserId,
+  locale,
+}: PostCardProps) {
   const router = useRouter();
-  const [content, setContent] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
+  const t = useTranslations("PostDropdown");
 
-  function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+  // جلوگیری از بروز خطای TypeError در صورت لود نشدن یا undefined بودن آبجکت post
+  if (!post || !post.type) {
+    return null;
   }
 
-  async function uploadImage(file: File): Promise<string> {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("type", "post");
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Upload failed");
-    return data.url as string;
+  const isRetweet = post.type === "RETWEET";
+  const displayPost = isRetweet && post.retweetOf ? post.retweetOf : post;
+  
+  // بررسی امنیتی برای پست مرجعِ ریتوییت‌شده
+  if (!displayPost) {
+    return null;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!content.trim() && !imageFile) return;
-    setLoading(true);
-    setError("");
+  const displayAuthor = displayPost.author ?? post.author;
 
-    try {
-      let imageUrl: string | undefined;
-      if (imageFile) imageUrl = await uploadImage(imageFile);
+  // هماهنگی با مدل دیتابیس شما (استفاده از ارتباط چند به چند PinnedPost)
+  // پستی پین‌شده تلقی می‌شود که در لیست pinnedBy آن رکوردی متعلق به نویسنده (یا کاربر فعلی) وجود داشته باشد.
+  const isPinned = Boolean(
+    displayPost.pinnedBy?.some(
+      (pin) => pin.userId === displayAuthor.id
+    )
+  );
 
-      const res = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, content: content.trim() || undefined, imageUrl, parentPostId, retweetOfId }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to post");
-
-      setContent("");
-      setImageFile(null);
-      setImagePreview(null);
-      onSuccess?.();
-      router.refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const handleCardClick = () => {
+    router.push(`/${locale}/status/${displayPost.id}`);
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3 p-4 border-b border-border">
-      <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
-        {authorAvatarUrl && (
-          <Image src={authorAvatarUrl} alt="You" width={40} height={40} className="object-cover" />
-        )}
-      </div>
+    <article
+      onClick={handleCardClick}
+      className="block cursor-pointer border-b border-border p-3 transition hover:bg-accent/40"
+    >
+      {/* هدر پست پین‌شده */}
+      {isPinned && (
+        <div className="mb-1.5 ml-8 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Pin className="size-3.5 -rotate-45 fill-current text-indigo-500" />
+          <span>{t("pinnedText")}</span>
+        </div>
+      )}
 
-      <div className="flex-1 space-y-2">
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={placeholder}
-          maxLength={280}
-          rows={3}
-          className="w-full bg-transparent resize-none text-sm focus:outline-none placeholder:text-muted-foreground"
-        />
-
-        {imagePreview && (
-          <div className="relative w-full rounded-xl overflow-hidden border border-border">
-            <Image src={imagePreview} alt="Preview" width={500} height={300} className="w-full object-cover max-h-60" />
-            <button
-              type="button"
-              onClick={() => { setImageFile(null); setImagePreview(null); }}
-              className="absolute top-2 right-2 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/80"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {error && <p className="text-xs text-red-500">{error}</p>}
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              <ImageIcon />
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
-            {content.length > 0 && (
-              <span className={`text-xs ${content.length > 260 ? "text-red-400" : "text-muted-foreground"}`}>
-                {280 - content.length}
-              </span>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || (!content.trim() && !imageFile)}
-            className="px-4 py-1.5 text-sm font-semibold rounded-full bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+      {/* هدر ریتوییت */}
+      {isRetweet && post.author && (
+        <div className="mb-1 ml-8 flex items-center gap-2 text-xs text-muted-foreground">
+          <Repeat2 className="size-3.5" />
+          <Link
+            href={`/${locale}/${post.author.username}`}
+            onClick={(e) => e.stopPropagation()}
+            className="font-bold hover:underline"
           >
-            {loading ? "Posting…" : type === "REPLY" ? "Reply" : "Post"}
-          </button>
+            {post.author.fullName}
+          </Link>
+          <span>{t("retweeted")}</span>
+        </div>
+      )}
+
+      {/* هدر ریپلای */}
+      {post.type === "REPLY" && (
+        <div className="mb-1.5 ml-8 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <MessageCircle className="size-3" />
+          <span>{t("replyingToPost")}</span>
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        {/* آواتار نویسنده */}
+        <div className="shrink-0">
+          <Link
+            href={`/${locale}/${displayAuthor.username}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {displayAuthor.avatarUrl ? (
+              <Image
+                src={displayAuthor.avatarUrl}
+                alt={displayAuthor.username}
+                width={40}
+                height={40}
+                className="size-10 rounded-full object-cover transition-opacity hover:opacity-90"
+              />
+            ) : (
+              <div className="flex size-10 items-center justify-center rounded-full bg-muted font-bold text-muted-foreground">
+                {displayAuthor.username[0]?.toUpperCase() ?? "U"}
+              </div>
+            )}
+          </Link>
+        </div>
+
+        {/* محتوای پست */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <Link
+                href={`/${locale}/${displayAuthor.username}`}
+                onClick={(e) => e.stopPropagation()}
+                className="truncate text-sm font-bold text-foreground hover:underline"
+              >
+                {displayAuthor.fullName}
+              </Link>
+
+              <span className="text-xs text-muted-foreground">
+                @{displayAuthor.username}
+              </span>
+
+              <span className="text-xs text-muted-foreground">·</span>
+
+              <span className="text-xs text-muted-foreground hover:underline">
+                {formatDistanceToNow(new Date(displayPost.createdAt), {
+                  addSuffix: true,
+                })}
+              </span>
+            </div>
+
+            {/* منوی گزینه‌ها */}
+            <div onClick={(e) => e.stopPropagation()}>
+              <PostDropdown
+                postId={displayPost.id}
+                authorId={displayAuthor.id}
+                currentUserId={currentUserId}
+                locale={locale}
+                isPinned={isPinned}
+              />
+            </div>
+          </div>
+
+          {displayPost.content && (
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
+              {displayPost.content}
+            </p>
+          )}
+
+          {displayPost.imageUrl && (
+            <div className="mt-2 max-h-[350px] overflow-hidden rounded-xl border border-border">
+              <Image
+                src={displayPost.imageUrl}
+                alt="Post attachment"
+                width={500}
+                height={300}
+                className="h-auto w-full object-cover"
+              />
+            </div>
+          )}
+
+          {/* تعاملات دکمه لایک/ریتویت */}
+          <div
+            className="mt-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PostActions
+              post={displayPost as any}
+              currentUserId={currentUserId}
+            />
+          </div>
         </div>
       </div>
-    </form>
-  );
-}
-
-function ImageIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" />
-      <polyline points="21 15 16 10 5 21" />
-    </svg>
+    </article>
   );
 }

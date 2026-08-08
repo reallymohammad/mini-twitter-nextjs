@@ -1,10 +1,10 @@
+// app/[locale]/(main)/[username]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import { PostWithRelations } from "@/lib/types/post";
-import Composer from "@/components/post/Composer";
 
 interface Props {
   params: Promise<{ locale: string; username: string }>;
@@ -22,6 +22,7 @@ const postInclude = {
     },
   },
   _count: { select: { likes: true, replies: true, retweets: true } },
+  pinnedBy: { select: { userId: true } },
   retweetOf: {
     include: {
       author: {
@@ -68,63 +69,52 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         }))
       : false;
 
+  const likesInclude = currentUser
+    ? { where: { userId: currentUser.id }, select: { userId: true } }
+    : false;
+
   let posts: PostWithRelations[] = [];
 
   if (tab === "posts") {
     posts = (await prisma.post.findMany({
-      where: {
-        authorId: profileUser.id,
-        type: { in: ["POST", "RETWEET", "QUOTE"] },
-      },
+      where: { authorId: profileUser.id, type: { in: ["POST", "RETWEET", "QUOTE"] } },
       orderBy: { createdAt: "desc" },
       take: 20,
-      include: {
-        ...postInclude,
-        likes: currentUser ? { where: { userId: currentUser.id } } : false,
-      },
+      include: { ...postInclude, likes: likesInclude },
     })) as PostWithRelations[];
   } else if (tab === "replies") {
     posts = (await prisma.post.findMany({
       where: { authorId: profileUser.id, type: "REPLY" },
       orderBy: { createdAt: "desc" },
       take: 20,
-      include: {
-        ...postInclude,
-        likes: currentUser ? { where: { userId: currentUser.id } } : false,
-      },
+      include: { ...postInclude, likes: likesInclude },
     })) as PostWithRelations[];
   } else if (tab === "likes") {
     posts = (await prisma.post.findMany({
       where: { likes: { some: { userId: profileUser.id } } },
       orderBy: { createdAt: "desc" },
       take: 20,
-      include: {
-        ...postInclude,
-        likes: currentUser ? { where: { userId: currentUser.id } } : false,
-      },
+      include: { ...postInclude, likes: likesInclude },
     })) as PostWithRelations[];
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto">
-        <ProfileHeader
-          user={profileUser}
-          counts={profileUser._count}
-          isOwner={isOwner}
-          isFollowing={isFollowing}
-          currentUserId={currentUser?.id}
-          locale={locale}
-        />
-      
-        <ProfileTabs
-          username={username}
-          locale={locale}
-          activeTab={tab}
-          posts={posts}
-          currentUserId={currentUser?.id}
-        />
-      </div>
-    </main>
+    <>
+      <ProfileHeader
+        user={profileUser}
+        counts={profileUser._count}
+        isOwner={isOwner}
+        isFollowing={isFollowing}
+        currentUserId={currentUser?.id}
+        locale={locale}
+      />
+      <ProfileTabs
+        username={username}
+        locale={locale}
+        activeTab={tab}
+        posts={posts}
+        currentUserId={currentUser?.id}
+      />
+    </>
   );
 }

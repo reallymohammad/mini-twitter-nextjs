@@ -1,101 +1,161 @@
+// components/post/PostActions.tsx
 "use client";
 
+import { MessageCircle, Repeat2, Heart, Share } from "lucide-react";
 import { useState } from "react";
-import { PostWithRelations } from "@/lib/types/post";
+import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
-interface Props {
-  post: PostWithRelations;
-  currentUserId?: string;
+interface PostActionsProps {
+  postId: string;
+  initialLikes: number;
+  initialReplies: number;
+  initialRetweets: number;
+  isLikedByUser: boolean;
+  isRetweetedByUser: boolean;
+  locale: string;
   onReply?: () => void;
 }
 
-export default function PostActions({ post, currentUserId, onReply }: Props) {
-  const [liked, setLiked] = useState(
-    currentUserId ? post.likes.some((l) => l.userId === currentUserId) : false
-  );
-  const [likeCount, setLikeCount] = useState(post._count.likes);
-  const [retweeted, setRetweeted] = useState(false);
-  const [retweetCount, setRetweetCount] = useState(post._count.retweets);
+export default function PostActions({
+  postId,
+  initialLikes,
+  initialReplies,
+  initialRetweets,
+  isLikedByUser,
+  isRetweetedByUser,
+  locale,
+  onReply,
+}: PostActionsProps) {
+  const router = useRouter();
+  const [likes, setLikes] = useState(initialLikes);
+  const [retweets, setRetweets] = useState(initialRetweets);
+  const [isLiked, setIsLiked] = useState(isLikedByUser);
+  const [isRetweeted, setIsRetweeted] = useState(isRetweetedByUser);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isRetweeting, setIsRetweeting] = useState(false);
 
-  async function toggleLike() {
-    if (!currentUserId) return;
-    const method = liked ? "DELETE" : "POST";
-    const res = await fetch(`/api/posts/${post.id}/like`, { method });
-    if (res.ok) {
-      setLiked(!liked);
-      setLikeCount((c) => c + (liked ? -1 : 1));
-    }
-  }
+  const handleLike = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-  async function toggleRetweet() {
-    if (!currentUserId) return;
-    const method = retweeted ? "DELETE" : "POST";
-    const res = await fetch(`/api/posts/${post.id}/retweet`, { method });
-    if (res.ok) {
-      setRetweeted(!retweeted);
-      setRetweetCount((c) => c + (retweeted ? -1 : 1));
+    if (isLiking) return;
+
+    setIsLiking(true);
+    const newIsLiked = !isLiked;
+    const previousLikes = likes;
+
+    setIsLiked(newIsLiked);
+    setLikes(prev => (newIsLiked ? prev + 1 : Math.max(0, prev - 1)));
+
+    try {
+      const response = await fetch(`/api/posts/${postId}/like`, {
+        method: newIsLiked ? "POST" : "DELETE",
+      });
+
+      if (!response.ok) {
+        setIsLiked(!newIsLiked);
+        setLikes(previousLikes);
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      setIsLiked(!newIsLiked);
+      setLikes(previousLikes);
+    } finally {
+      setIsLiking(false);
     }
-  }
+  };
+
+  const handleRetweet = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isRetweeting) return;
+
+    setIsRetweeting(true);
+    const newIsRetweeted = !isRetweeted;
+    const previousRetweets = retweets;
+
+    setIsRetweeted(newIsRetweeted);
+    setRetweets(prev => (newIsRetweeted ? prev + 1 : Math.max(0, prev - 1)));
+
+    try {
+      const response = await fetch(`/api/posts/${postId}/retweet`, {
+        method: newIsRetweeted ? "POST" : "DELETE",
+      });
+
+      if (!response.ok) {
+        setIsRetweeted(!newIsRetweeted);
+        setRetweets(previousRetweets);
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      setIsRetweeted(!newIsRetweeted);
+      setRetweets(previousRetweets);
+    } finally {
+      setIsRetweeting(false);
+    }
+  };
 
   return (
-    <div className="flex items-center gap-5 mt-3 text-muted-foreground">
-      {/* Reply */}
+    <div className="flex items-center justify-between mt-3 text-muted-foreground">
       <button
-        onClick={onReply}
-        className="flex items-center gap-1.5 text-sm hover:text-indigo-400 transition-colors"
+        onClick={onReply || (() => router.push(`/${locale}/post/${postId}`))}
+        className="flex items-center gap-2 hover:text-blue-500 transition-colors group"
       >
-        <ReplyIcon />
-        <span>{post._count.replies}</span>
+        <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-colors">
+          <MessageCircle className="w-4 h-4" />
+        </div>
+        <span className="text-sm">{initialReplies}</span>
       </button>
 
-      {/* Retweet */}
       <button
-        onClick={toggleRetweet}
-        className={`flex items-center gap-1.5 text-sm transition-colors ${
-          retweeted ? "text-emerald-400" : "hover:text-emerald-400"
-        }`}
+        onClick={handleRetweet}
+        disabled={isRetweeting}
+        className={cn(
+          "flex items-center gap-2 transition-colors group",
+          isRetweeted ? "text-green-500" : "hover:text-green-500"
+        )}
       >
-        <RetweetIcon />
-        <span>{retweetCount}</span>
+        <div
+          className={cn(
+            "p-2 rounded-full transition-colors",
+            isRetweeted
+              ? "bg-green-500/10"
+              : "group-hover:bg-green-500/10"
+          )}
+        >
+          <Repeat2 className="w-4 h-4" />
+        </div>
+        <span className="text-sm">{retweets}</span>
       </button>
 
-      {/* Like */}
       <button
-        onClick={toggleLike}
-        className={`flex items-center gap-1.5 text-sm transition-colors ${
-          liked ? "text-fuchsia-500" : "hover:text-fuchsia-500"
-        }`}
+        onClick={handleLike}
+        disabled={isLiking}
+        className={cn(
+          "flex items-center gap-2 transition-colors group",
+          isLiked ? "text-rose-500" : "hover:text-rose-500"
+        )}
       >
-        <HeartIcon filled={liked} />
-        <span>{likeCount}</span>
+        <div
+          className={cn(
+            "p-2 rounded-full transition-colors",
+            isLiked ? "bg-rose-500/10" : "group-hover:bg-rose-500/10"
+          )}
+        >
+          <Heart className={cn("w-4 h-4", isLiked && "fill-current")} />
+        </div>
+        <span className="text-sm">{likes}</span>
+      </button>
+
+      <button className="flex items-center gap-2 hover:text-blue-500 transition-colors group">
+        <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-colors">
+          <Share className="w-4 h-4" />
+        </div>
       </button>
     </div>
-  );
-}
-
-function ReplyIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function RetweetIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="17 1 21 5 17 9" />
-      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-      <polyline points="7 23 3 19 7 15" />
-      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-    </svg>
-  );
-}
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
   );
 }
