@@ -1,12 +1,22 @@
-import { Post, User, Like, PostType, PinnedPost } from "@prisma/client";
+import type { Post, User } from "@prisma/client";
+
+export type PostType = "POST" | "REPLY" | "QUOTE";
 
 export type PostWithRelations = Post & {
   author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
-  _count: { likes: number; replies: number; retweets: number };
+  _count: { likes: number; replies: number; reposts: number };
   likes: { userId: string }[];
-  pinnedBy: { userId: string }[];  // 👈 اضافه شد
-  retweetOf?: (Post & {
+  reposts: { userId: string }[];
+  bookmarks?: { userId: string }[];
+  isLiked?: boolean;
+  isReposted?: boolean;
+  isBookmarked?: boolean;
+  pinnedBy: { userId: string }[];
+  replyTo?: (Post & {
     author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
-    _count: { likes: number; replies: number; retweets: number };
+  }) | null;
+  quotedPost?: (Post & {
+    author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+    _count: { likes: number; replies: number; reposts: number };
   }) | null;
 };

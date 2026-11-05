@@ -1,12 +1,20 @@
-// app/api/auth/me/route.ts
+import { getCurrentUser, getSessionCookiePayload } from "@/lib/session";
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { toSafeUser } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json(null);
-  }
-  return NextResponse.json(toSafeUser(user));
+  if (!user) return NextResponse.json({ user: null }, { status: 401 });
+
+  const sessionPayload = await getSessionCookiePayload();
+
+  return NextResponse.json({
+    user: {
+      username: user.username,
+      fullName: user.fullName ?? user.username,
+      avatarUrl: user.avatarUrl,
+    },
+    sessionId: sessionPayload?.activeSessionId ?? null,
+  });
 }

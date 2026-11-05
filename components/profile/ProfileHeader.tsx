@@ -1,9 +1,11 @@
 // components/profile/ProfileHeader.tsx
 "use client";
 
+import { useTransition } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CalendarDays, MapPin, Link2 } from "lucide-react";
+import { CalendarDays, MapPin, Link2, Mail, Loader2 } from "lucide-react";
+import { startDirectConversation } from "@/lib/dm/actions";
 
 interface User {
   id: string;
@@ -26,8 +28,16 @@ interface Props {
   locale: string;
 }
 
-export default function ProfileHeader({ user, counts, isOwner, isFollowing, currentUserId, locale }: Props) {
+export default function ProfileHeader({
+  user,
+  counts,
+  isOwner,
+  isFollowing,
+  currentUserId,
+  locale,
+}: Props) {
   const router = useRouter();
+  const [isPendingMessage, startMessageTransition] = useTransition();
 
   async function handleFollow() {
     await fetch("/api/follow", {
@@ -38,7 +48,24 @@ export default function ProfileHeader({ user, counts, isOwner, isFollowing, curr
     router.refresh();
   }
 
-  const joinDate = new Date(user.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  function handleDirectMessage() {
+    startMessageTransition(async () => {
+      try {
+        const res = await startDirectConversation(user.id);
+        if (res?.conversationId) {
+          router.push(`/${locale}/messages/${res.conversationId}`);
+        }
+      } catch (err: unknown) {
+        const error = err as Error;
+        alert(error?.message || "امکان ارسال پیام به این کاربر وجود ندارد.");
+      }
+    });
+  }
+
+  const joinDate = new Date(user.createdAt).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   return (
     <div>
@@ -62,25 +89,46 @@ export default function ProfileHeader({ user, counts, isOwner, isFollowing, curr
             )}
           </div>
 
-          {isOwner ? (
-            <button
-              onClick={() => router.push(`/${locale}/settings/profile`)}
-              className="px-4 py-1.5 text-sm font-medium rounded-full border border-border hover:bg-muted transition-colors"
-            >
-              Edit profile
-            </button>
-          ) : currentUserId ? (
-            <button
-              onClick={handleFollow}
-              className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                isFollowing
-                  ? "border border-border hover:bg-muted"
-                  : "bg-foreground text-background hover:opacity-90"
-              }`}
-            >
-              {isFollowing ? "Following" : "Follow"}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {isOwner ? (
+              <button
+                onClick={() => router.push(`/${locale}/settings/profile`)}
+                className="px-4 py-1.5 text-sm font-medium rounded-full border border-border hover:bg-muted transition-colors"
+              >
+                Edit profile
+              </button>
+            ) : currentUserId ? (
+              <>
+                {/* Direct Message Button */}
+                <button
+                  type="button"
+                  onClick={handleDirectMessage}
+                  disabled={isPendingMessage}
+                  title="Direct Message"
+                  aria-label="Send direct message"
+                  className="p-2 rounded-full border border-border hover:bg-muted transition-colors disabled:opacity-50 text-foreground"
+                >
+                  {isPendingMessage ? (
+                    <Loader2 size={18} className="animate-spin text-muted-foreground" />
+                  ) : (
+                    <Mail size={18} />
+                  )}
+                </button>
+
+                {/* Follow / Unfollow Button */}
+                <button
+                  onClick={handleFollow}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                    isFollowing
+                      ? "border border-border hover:bg-muted text-foreground"
+                      : "bg-foreground text-background hover:opacity-90"
+                  }`}
+                >
+                  {isFollowing ? "Following" : "Follow"}
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
 
         {/* Name & username */}

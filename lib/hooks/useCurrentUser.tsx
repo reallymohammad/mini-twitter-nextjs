@@ -16,12 +16,15 @@ export function CurrentUserProvider({
 }) {
   const [user, setUser] = useState<SafeUser | null | undefined>(undefined);
 
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setUser(data))
-      .catch(() => setUser(null));
-  }, []);
+  
+useEffect(() => {
+  fetch("/api/auth/me", { cache: "no-store" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => setUser(data?.user ?? null))
+    .catch(() => setUser(null));
+}, []);
+
+
 
   return (
     <CurrentUserContext.Provider value={user}>

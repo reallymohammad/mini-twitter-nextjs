@@ -1,3 +1,4 @@
+// app/[locale]/compose/page.tsx
 "use client";
 
 import { useState, useRef } from "react";
@@ -60,13 +61,13 @@ export default function ComposePage() {
     if (!canSubmit) return;
 
     setIsSubmitting(true);
-    let imageUrl: string | null = null;
+    let mediaUrls: string[] = [];
 
     try {
       if (mediaFile) {
         const formData = new FormData();
         formData.append("file", mediaFile);
-        formData.append("type", "post"); // تغییر از cover به post
+        formData.append("type", "post");
 
         const uploadRes = await fetch("/api/upload", {
           method: "POST",
@@ -79,13 +80,13 @@ export default function ComposePage() {
         }
 
         const data = await uploadRes.json();
-        imageUrl = data.url;
+        mediaUrls = [data.url];
       }
 
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content.trim(), imageUrl }),
+        body: JSON.stringify({ content: content.trim(), mediaUrls }),
       });
 
       if (!res.ok) {
@@ -95,14 +96,11 @@ export default function ComposePage() {
 
       const post = await res.json();
 
-      // نوتیفیکیشن موفقیت
       toast.success(t("success"));
 
-      // پاکسازی فرم
       setContent("");
       handleRemoveMedia();
 
-      // ریدایرکت به صفحه پست جدید
       router.push(`/${locale}/status/${post.id}`);
       router.refresh();
     } catch (error: any) {

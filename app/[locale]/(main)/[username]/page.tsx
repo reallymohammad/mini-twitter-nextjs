@@ -1,4 +1,3 @@
-// app/[locale]/(main)/[username]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
@@ -11,43 +10,84 @@ interface Props {
   searchParams: Promise<{ tab?: string }>;
 }
 
-const postInclude = {
-  author: {
-    select: {
-      id: true,
-      username: true,
-      fullName: true,
-      avatarUrl: true,
-      badge: true,
+const authorSelect = {
+  id: true,
+  username: true,
+  fullName: true,
+  avatarUrl: true,
+  badge: true,
+} as const;
+
+// جایگزین const postInclude = { ... } با این:
+const getPostInclude = (userId?: string) => {
+  const userFilter = userId
+    ? { where: { userId }, select: { userId: true } }
+    : false;
+
+  return {
+    author: { select: authorSelect },
+    _count: {
+      select: {
+        likes: true,
+        replies: true,
+        reposts: true,
+        bookmarks: true,
+        quotes: true,
+      },
     },
-  },
-  _count: { select: { likes: true, replies: true, retweets: true } },
-  pinnedBy: { select: { userId: true } },
-  retweetOf: {
-    include: {
-      author: {
-        select: {
-          id: true,
-          username: true,
-          fullName: true,
-          avatarUrl: true,
-          badge: true,
+    pinnedBy: { select: { userId: true, order: true } },
+    replyTo: {
+      select: { id: true, content: true, author: { select: authorSelect } },
+    },
+    quoteOf: {
+      include: {
+        author: { select: authorSelect },
+        likes: userFilter,
+        bookmarks: userFilter,
+        reposts: userFilter,
+        _count: {
+          select: { likes: true, replies: true, reposts: true, quotes: true },
         },
       },
-      _count: { select: { likes: true, replies: true, retweets: true } },
     },
-  },
-} as const;
+    likes: userFilter,
+    bookmarks: userFilter,
+    reposts: userFilter,
+  } as const;
+};
+
+
 
 export default async function ProfilePage({ params, searchParams }: Props) {
   const { username, locale } = await params;
   const { tab = "posts" } = await searchParams;
 
   const [profileUser, currentUser] = await Promise.all([
-    prisma.user.findUnique({
-      where: { username },
+    prisma.user.findFirst({
+      where: {
+        username,
+        deletedAt: null,
+      },
       include: {
-        _count: { select: { followers: true, following: true, posts: true } },
+        _count: {
+          select: {
+            followers: {
+              where: {
+                status: "ACCEPTED",
+              },
+            },
+            following: {
+              where: {
+                status: "ACCEPTED",
+              },
+            },
+            posts: {
+              where: {
+                deletedAt: null,
+              },
+            },
+          },
+        },
       },
     }),
     getCurrentUser(),
@@ -57,46 +97,61 @@ export default async function ProfilePage({ params, searchParams }: Props) {
 
   const isOwner = currentUser?.id === profileUser.id;
 
-  const isFollowing =
-    !isOwner && currentUser
-      ? !!(await prisma.follow.findUnique({
-          where: {
-            followerId_followingId: {
-              followerId: currentUser.id,
-              followingId: profileUser.id,
-            },
+  const follow = !isOwner && currentUser
+    ? await prisma.follow.findUnique({
+        where: {
+          followerId_followingId: {
+            followerId: currentUser.id,
+            followingId: profileUser.id,
           },
-        }))
-      : false;
+        },
+        select: {
+          status: true,
+        },
+      })
+    : null;
 
-  const likesInclude = currentUser
-    ? { where: { userId: currentUser.id }, select: { userId: true } }
-    : false;
+  // فقط Follow تأییدشده
+  const isFollowing = follow?.status === "ACCEPTED";
 
-  let posts: PostWithRelations[] = [];
+  // برای نمایش حالت «درخواست ارسال شده» در حساب private
+  const isFollowPending = follow?.status === "PENDING";
 
-  if (tab === "posts") {
-    posts = (await prisma.post.findMany({
-      where: { authorId: profileUser.id, type: { in: ["POST", "RETWEET", "QUOTE"] } },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { ...postInclude, likes: likesInclude },
-    })) as PostWithRelations[];
-  } else if (tab === "replies") {
-    posts = (await prisma.post.findMany({
-      where: { authorId: profileUser.id, type: "REPLY" },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { ...postInclude, likes: likesInclude },
-    })) as PostWithRelations[];
-  } else if (tab === "likes") {
-    posts = (await prisma.post.findMany({
-      where: { likes: { some: { userId: profileUser.id } } },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { ...postInclude, likes: likesInclude },
-    })) as PostWithRelations[];
-  }
+  
+
+ let posts: PostWithRelations[] = [];
+
+if (tab === "posts") {
+  posts = (await prisma.post.findMany({
+    where: { authorId: profileUser.id, deletedAt: null, replyToId: null },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: getPostInclude(currentUser?.id),
+  })) as PostWithRelations[];
+} else if (tab === "replies") {
+  posts = (await prisma.post.findMany({
+    where: { authorId: profileUser.id, deletedAt: null, replyToId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: getPostInclude(currentUser?.id),
+  })) as PostWithRelations[];
+} else if (tab === "likes") {
+  posts = (await prisma.post.findMany({
+    where: { deletedAt: null, likes: { some: { userId: profileUser.id } } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: getPostInclude(currentUser?.id),
+  })) as PostWithRelations[];
+} else if (tab === "reposts") {
+  posts = (await prisma.post.findMany({
+    where: { deletedAt: null, reposts: { some: { userId: profileUser.id } } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: getPostInclude(currentUser?.id),
+  })) as PostWithRelations[];
+}
+
+
 
   return (
     <>
@@ -108,6 +163,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         currentUserId={currentUser?.id}
         locale={locale}
       />
+
       <ProfileTabs
         username={username}
         locale={locale}

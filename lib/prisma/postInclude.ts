@@ -1,46 +1,78 @@
 // lib/prisma/postInclude.ts
 import { Prisma } from "@prisma/client";
 
+const authorSelect = {
+  id: true,
+  username: true,
+  fullName: true,
+  avatarUrl: true,
+  badge: true,
+} as const;
+
 export function getPostInclude(userId?: string) {
   return {
     author: {
-      select: {
-        id: true,
-        username: true,
-        fullName: true,
-        avatarUrl: true,
-        badge: true,
-      },
+      select: authorSelect,
     },
+
     likes: userId
-      ? { where: { userId }, select: { userId: true } }
+      ? {
+          where: { userId },
+          select: { userId: true },
+        }
       : false,
-    pinnedBy: { select: { userId: true } },
-    retweetOf: {
+
+    reposts: userId
+      ? {
+          where: { userId },
+          select: { userId: true },
+        }
+      : false,
+
+    pinnedBy: userId
+      ? {
+          where: { userId },
+          select: {
+            userId: true,
+            order: true,
+          },
+        }
+      : false,
+
+    quoteOf: {
       include: {
         author: {
+          select: authorSelect,
+        },
+        _count: {
           select: {
-            id: true,
-            username: true,
-            fullName: true,
-            avatarUrl: true,
-            badge: true,
+            likes: true,
+            replies: true,
+            reposts: true,
+            quotes: true,
           },
         },
-        _count: { select: { likes: true, replies: true, retweets: true } },
       },
     },
-    _count: { select: { likes: true, replies: true, retweets: true } },
-  } satisfies Prisma.PostInclude;
-}
 
-export function getRetweetedByCurrentUser(posts: any[], userId?: string) {
-  if (!userId) return new Set<string>();
-  
-  return new Set(
-    posts
-      .filter(p => p.type === "RETWEET" && p.authorId === userId)
-      .map(p => p.retweetOfId)
-      .filter(Boolean) as string[]
-  );
+    replyTo: {
+      select: {
+        id: true,
+        content: true,
+        author: {
+          select: authorSelect,
+        },
+      },
+    },
+
+    _count: {
+      select: {
+        likes: true,
+        replies: true,
+        reposts: true,
+        quotes: true,
+        bookmarks: true,
+      },
+    },
+  } satisfies Prisma.PostInclude;
 }

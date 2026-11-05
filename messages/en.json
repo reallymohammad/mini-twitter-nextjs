@@ -27,8 +27,6 @@
     "emptyTitle": "No posts yet",
     "emptySubtitle": "When people you follow post, you'll see it here."
   },
-
-  
   "PostDropdown": {
     "pin": "Pin post",
     "unpin": "Unpin post",
@@ -44,10 +42,13 @@
     "deleting": "Deleting...",
     "cancel": "Cancel"
   },
-
-  
-
- "compose": {
+  "userMenu": {
+    "loadError": "Failed to load accounts.",
+    "switchError": "Failed to switch account.",
+    "addAccount": "Add an existing account",
+    "logoutUser": "Log out @{username}"
+  },
+  "compose": {
     "placeholder": "What's happening?",
     "submit": "Post",
     "success": "Post sent successfully",
@@ -60,9 +61,9 @@
       "unexpected": "Unexpected error"
     }
   },
-  
- 
-  
+  "Composer": {
+    "reply": "Reply"
+  },
   "auth": {
     "signin": {
       "title": "Welcome back",
@@ -73,7 +74,7 @@
       },
       "placeholders": {
         "identifier": "you@example.com",
-        "password": "Enter your password"
+        "password": "••••••••"
       },
       "errors": {
         "identifierRequired": "Email or username is required",
@@ -100,7 +101,7 @@
         "name": "John Doe",
         "username": "johndoe",
         "email": "you@example.com",
-        "password": "At least 8 characters",
+        "password": "••••••••",
         "confirmPassword": "Re-enter your password"
       },
       "errors": {
@@ -114,10 +115,8 @@
       "back": "Back",
       "submit": "Create account",
       "haveAccount": "Already have an account?",
-      "signIn": "Sign in"
+      "signIn": "Sign in",
+      "submitting": "Creating account..."
     }
   }
-
-
-
 }

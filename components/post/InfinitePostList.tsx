@@ -1,4 +1,4 @@
-// components/posts/InfinitePostList.tsx
+// components/post/InfinitePostList.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -11,7 +11,7 @@ interface InfinitePostListProps {
   initialCursor: string | null;
   currentUserId?: string;
   locale: string;
-  userId?: string; // اختیاری: برای فیلتر کردن پست‌های یک کاربر خاص
+  userId?: string;
 }
 
 export default function InfinitePostList({
@@ -30,32 +30,39 @@ export default function InfinitePostList({
     if (!cursor || loading) return;
 
     setLoading(true);
+
     try {
       const url = new URL("/api/posts", window.location.origin);
+
       url.searchParams.set("cursor", cursor);
       url.searchParams.set("limit", "10");
+
       if (userId) {
         url.searchParams.set("userId", userId);
       }
 
       const res = await fetch(url.toString());
-      if (res.ok) {
-        const data = await res.json();
-        setPosts((prev) => [...prev, ...data.posts]);
-        setCursor(data.nextCursor);
+
+      if (!res.ok) {
+        throw new Error("Failed to load posts");
       }
-    } catch (err) {
-      console.error("Failed to load more posts", err);
+
+      const data = await res.json();
+
+      setPosts((previousPosts) => [...previousPosts, ...data.posts]);
+      setCursor(data.nextCursor);
+    } catch (error) {
+      console.error("Failed to load more posts:", error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (inView && cursor) {
+    if (inView && cursor && !loading) {
       loadMorePosts();
     }
-  }, [inView, cursor]);
+  }, [inView, cursor, loading]);
 
   return (
     <div className="divide-y divide-border">
@@ -68,10 +75,11 @@ export default function InfinitePostList({
         />
       ))}
 
-      {/* بخش نمایش لودر در انتهای لیست */}
       {cursor && (
         <div ref={ref} className="flex justify-center p-4">
-          {loading && <Loader2 className="animate-spin text-primary h-6 w-6" />}
+          {loading && (
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          )}
         </div>
       )}
     </div>

@@ -1,71 +1,77 @@
-// app/api/auth/signup/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
-import { isValidEmail, sanitizeIdentifier } from "@/lib/auth/validators";
+import { createSession, setSessionCookie } from "@/lib/session";
+import { authRateLimit, getClientIp } from "@/lib/rateLimit";
+import { toSafeUser } from "@/lib/utils";
 
-interface SignupBody {
-  fullName: string;
-  username: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  locale?: string;
-}
+const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
+
+const signupSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      USERNAME_REGEX,
+      "Username must be 3-20 characters (letters, numbers, underscore only)."
+    ),
+  email: z.string().trim().toLowerCase().email("Invalid email address."),
+  fullName: z.string().trim().min(1, "Full name is required.").max(50),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters.")
+    .max(72, "Password is too long."),
+  locale: z.string().min(2).max(5),
+});
 
 export async function POST(req: Request) {
-  try {
-    const body = (await req.json()) as Partial<SignupBody>;
-    const { fullName, username, email, password, confirmPassword, locale = "en" } = body;
+  const ip = getClientIp(req);
+  const { success } = await authRateLimit.limit(ip);
 
-    if (!fullName || !username || !email || !password || !confirmPassword) {
-      return NextResponse.json({ error: "All fields are required." }, { status: 400 });
-    }
-
-    const trimmedFullName = fullName.trim();
-    const normalizedEmail = sanitizeIdentifier(email);
-    const normalizedUsername = sanitizeIdentifier(username);
-
-    if (!isValidEmail(normalizedEmail)) {
-      return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
-    }
-
-    if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
-    }
-
-    if (password !== confirmPassword) {
-      return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
-    }
-
-    const existingUser = await prisma.user.findFirst({
-      where: { OR: [{ email: normalizedEmail }, { username: normalizedUsername }] },
-      select: { email: true, username: true },
-    });
-
-    if (existingUser) {
-      const field = existingUser.email === normalizedEmail ? "email" : "username";
-      return NextResponse.json({ error: `This ${field} is already taken.`, field }, { status: 409 });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 12);
-
-    const user = await prisma.user.create({
-      data: { fullName: trimmedFullName, username: normalizedUsername, email: normalizedEmail, passwordHash },
-    });
-
-    (await cookies()).set("userId", user.id, { httpOnly: true, path: "/" });
-
-    return NextResponse.json({ redirectTo: `/${locale}/${user.username}` }, { status: 201 });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      const target = (err.meta?.target as string[] | undefined)?.[0];
-      return NextResponse.json({ error: `This ${target ?? "field"} is already taken.` }, { status: 409 });
-    }
-
-    console.error("Signup error:", err);
-    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+  if (!success) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429 }
+    );
   }
+
+  const body = await req.json().catch(() => null);
+  const parsed = signupSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
+      { status: 400 }
+    );
+  }
+
+  const { username, email, fullName, password, locale } = parsed.data;
+
+  const existingUser = await prisma.user.findFirst({
+    where: { OR: [{ username }, { email }] },
+  });
+
+  if (existingUser) {
+    const field = existingUser.username === username ? "Username" : "Email";
+    return NextResponse.json(
+      { error: `${field} already exists.` },
+      { status: 409 }
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  const user = await prisma.user.create({
+    data: { username, email, fullName, passwordHash },
+  });
+
+  const session = await createSession(user.id, false);
+  await setSessionCookie(session.id, false);
+
+  return NextResponse.json(
+    { user: toSafeUser(user), redirectTo: `/${locale}/${user.username}` },
+    { status: 201 }
+  );
 }

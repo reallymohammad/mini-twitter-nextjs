@@ -1,4 +1,3 @@
-// app/[locale]/(main)/status/[postId]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
@@ -32,16 +31,44 @@ export default async function PostDetailPage({ params }: PageProps) {
       likes: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
+        bookmarks: currentUser
+      ? { where: { userId: currentUser.id }, select: { userId: true } }
+      : false,
+      reposts: currentUser
+        ? { where: { userId: currentUser.id }, select: { userId: true } }
+        : false,
       pinnedBy: { select: { userId: true } },
-      retweetOf: {
+      replyTo: {
         include: {
-          author: true,
+          author: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              avatarUrl: true,
+              badge: true,
+            },
+          },
+        },
+      },
+      quoteOf: {
+        include: {
+          author: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              avatarUrl: true,
+              badge: true,
+            },
+          },
         },
       },
       _count: {
         select: {
           likes: true,
           replies: true,
+          reposts: true,
         },
       },
     },
@@ -51,11 +78,10 @@ export default async function PostDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // گرفتن ریپلای‌های مربوط به این پست
+   // گرفتن ریپلای‌های مربوط به این پست
   const replies = await prisma.post.findMany({
     where: {
-      parentPostId: postId,
-      type: "REPLY",
+      replyToId: postId,
     },
     include: {
       author: {
@@ -70,16 +96,32 @@ export default async function PostDetailPage({ params }: PageProps) {
       likes: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
+        bookmarks: currentUser
+  ? { where: { userId: currentUser.id }, select: { userId: true } }
+  : false,
+
+      reposts: currentUser
+        ? { where: { userId: currentUser.id }, select: { userId: true } }
+        : false,
       pinnedBy: { select: { userId: true } },
-      retweetOf: {
+      quoteOf: {
         include: {
-          author: true,
+          author: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              avatarUrl: true,
+              badge: true,
+            },
+          },
         },
       },
       _count: {
         select: {
           likes: true,
           replies: true,
+          reposts: true,
         },
       },
     },
@@ -99,16 +141,21 @@ export default async function PostDetailPage({ params }: PageProps) {
       <PostCard post={post as any} currentUserId={currentUser?.id} locale={locale} redirectAfterDelete fallbackHref={`/${locale}`} />
 
       {/* بخش ارسال پاسخ (Reply Composer) */}
-      {currentUser && (
-        <div className="border-b border-border p-3">
-          <Composer
-            type="REPLY"
-            parentPostId={post.id}
-            authorAvatarUrl={currentUser.avatarUrl || undefined}
-            placeholder="Post your reply"
-          />
-        </div>
-      )}
+     {currentUser && (
+  <div className="border-b border-border p-3">
+    <Composer
+      currentUser={{
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.fullName ?? null,
+        avatarUrl: currentUser.avatarUrl ?? null,
+      }}
+      replyToId={post.id}
+      placeholder="Post your reply"
+    />
+  </div>
+)}
+
 
       {/* لیست ریپلای‌ها */}
       <div className="divide-y divide-border">

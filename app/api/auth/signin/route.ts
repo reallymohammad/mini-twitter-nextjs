@@ -1,44 +1,79 @@
-// app/api/auth/signin/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { cookies } from "next/headers";
-import { sanitizeIdentifier } from "@/lib/auth/validators";
+import { prisma } from "@/lib/prisma";
+import { createSession, setSessionCookie, addAccountSession } from "@/lib/session";
+import { authRateLimit, getClientIp } from "@/lib/rateLimit";
+import { toSafeUser } from "@/lib/utils";
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const emailOrUsername: string = body.emailOrUsername;
-    const password: string = body.password;
-    const locale: string = body.locale ?? "en";
+const signinSchema = z.object({
+  identifier: z.string().min(1, "Username or email is required."),
+  password: z.string().min(1, "Password is required."),
+  remember: z.boolean().optional().default(false),
+  locale: z.string().min(2).max(5),
+  mode: z.enum(["new", "add"]).optional().default("new"),
+});
 
-    if (!emailOrUsername || !password) {
-      return NextResponse.json(
-        { error: "Email/username and password are required." },
-        { status: 400 }
-      );
-    }
+export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  const { success } = await authRateLimit.limit(ip);
 
-    const identifier = sanitizeIdentifier(emailOrUsername);
-
-    const user = await prisma.user.findFirst({
-      where: { OR: [{ email: identifier }, { username: identifier }] },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
-    }
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
-    }
-
-    (await cookies()).set("userId", user.id, { httpOnly: true, path: "/" });
-
-    return NextResponse.json({ redirectTo: `/${locale}/${user.username}` });
-  } catch (err) {
-    console.error("Signin error:", err);
-    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+  if (!success) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429 }
+    );
   }
+
+  const body = await req.json().catch(() => null);
+  const parsed = signinSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
+      { status: 400 }
+    );
+  }
+
+  const { identifier, password, remember, locale, mode } = parsed.data;
+  const normalizedIdentifier = identifier.trim().toLowerCase();
+
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: normalizedIdentifier },
+        { email: normalizedIdentifier },
+      ],
+    },
+  });
+
+  const invalidCredentialsResponse = NextResponse.json(
+    { error: "Invalid credentials." },
+    { status: 401 }
+  );
+
+  if (!user || !user.passwordHash) {
+    return invalidCredentialsResponse;
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+  if (!passwordMatches) {
+    return invalidCredentialsResponse;
+  }
+
+  const session = await createSession(user.id, remember);
+
+  if (mode === "add") {
+    await addAccountSession(session.id, remember);
+  } else {
+    await setSessionCookie(session.id, remember);
+  }
+
+  return NextResponse.json(
+    {
+      user: toSafeUser(user),
+      redirectTo: `/${locale}/${user.username}`,
+    },
+    { status: 200 }
+  );
 }

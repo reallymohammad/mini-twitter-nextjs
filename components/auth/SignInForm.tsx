@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
 import Link from "next/link";
 import { useLocale } from "next-intl";
-
+import { useSearchParams } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 
 export default function SignInForm() {
@@ -25,37 +24,46 @@ export default function SignInForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const locale = useLocale();
-
+  const searchParams = useSearchParams();
+  const mode = (searchParams.get("mode") as "new" | "add") ?? "new";
 
   function validate() {
     const next: typeof errors = {};
-    if (!identifier.trim()) next.identifier = t("errors.identifierRequired");
-    if (!password) next.password = t("errors.passwordRequired");
+    if (!identifier.trim()) next.identifier = "Required";
+    if (!password) next.password = "Required";
     setErrors(next);
     return Object.keys(next).length === 0;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    e.stopPropagation();
+    
     setServerError(null);
-    if (!validate()) return;
+    if (!validate()) {
+      console.log("Validation failed:", { identifier, password });
+      return;
+    }
 
     setIsSubmitting(true);
     setErrors({});
 
     try {
+      console.log("Sending signin request...");
       const res = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          emailOrUsername: identifier,
+          identifier: identifier.trim(),
           password,
           remember,
           locale,
+          mode,
         }),
       });
 
       const data = await res.json();
+      console.log("Signin response:", res.status, data);
 
       if (!res.ok) {
         const msg = data.error ?? "Invalid credentials.";
@@ -64,8 +72,11 @@ export default function SignInForm() {
         return;
       }
 
-      router.push(data.redirectTo);
-    } catch {
+      const target = data.redirectTo || `/${locale}/home`;
+      router.push(target);
+      router.refresh();
+    } catch (err) {
+      console.error("Fetch error:", err);
       const msg = "Network error. Please try again.";
       setServerError(msg);
       setErrors({ general: msg });
@@ -75,131 +86,138 @@ export default function SignInForm() {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: "easeOut" }}
-      className="w-full max-w-md mx-auto"
-    >
-      <div className="relative rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-8 shadow-2xl">
-        <div className="absolute -inset-px rounded-2xl bg-gradient-to-br from-indigo-500/20 via-violet-500/20 to-fuchsia-500/20 blur-xl -z-10" />
+    <div className="w-full max-w-sm sm:max-w-md mx-auto block opacity-100">
+      <div className="relative rounded-2xl sm:rounded-3xl border border-neutral-800 bg-neutral-900 p-5 sm:p-8 shadow-2xl">
+        {/* Glow Background */}
+        <div className="absolute -inset-px rounded-2xl sm:rounded-3xl bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-fuchsia-500/15 blur-lg -z-10 pointer-events-none" />
 
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
+        {/* Header */}
+        <div className="mb-6 sm:mb-8 text-center">
+          <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
             {t("title")}
           </h1>
-          <p className="mt-2 text-sm text-white/50">{t("subtitle")}</p>
+          <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-neutral-300">
+            {t("subtitle")}
+          </p>
         </div>
 
+        {/* Error Alert */}
         {(errors.general || serverError) && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400"
-          >
+          <div className="mb-4 sm:mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2.5 text-xs sm:text-sm text-red-400 leading-relaxed">
             {errors.general ?? serverError}
-          </motion.div>
+          </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4 sm:space-y-5">
+          {/* Identifier Input */}
           <div>
-            <label className="block text-sm text-white/70 mb-1.5">
+            <label className="block text-xs sm:text-sm font-medium text-neutral-200 mb-1.5">
               {t("fields.identifier")}
             </label>
-            <div className="relative">
-              <Mail className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+            <div className="relative flex items-center">
+              <Mail className="absolute start-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
               <input
                 type="text"
                 value={identifier}
+                autoComplete="username"
                 onChange={(e) => {
                   setIdentifier(e.target.value);
                   if (errors.identifier)
                     setErrors((prev) => ({ ...prev, identifier: undefined }));
                 }}
                 placeholder={t("placeholders.identifier")}
-                className={`w-full rounded-xl bg-white/5 border ps-10 pe-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20 ${
-                  errors.identifier ? "border-red-500/40" : "border-white/10"
+                className={`w-full rounded-xl bg-neutral-950 border ps-10 pe-4 py-3 sm:py-2.5 text-base sm:text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20 ${
+                  errors.identifier ? "border-red-500/40" : "border-neutral-800"
                 }`}
               />
             </div>
             {errors.identifier && (
-              <p className="mt-1 text-xs text-red-400">{errors.identifier}</p>
+              <p className="mt-1.5 text-xs text-red-400">{errors.identifier}</p>
             )}
           </div>
 
+          {/* Password Input */}
           <div>
-            <label className="block text-sm text-white/70 mb-1.5">
+            <label className="block text-xs sm:text-sm font-medium text-neutral-200 mb-1.5">
               {t("fields.password")}
             </label>
-            <div className="relative">
-              <Lock className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+            <div className="relative flex items-center">
+              <Lock className="absolute start-3.5 h-4 w-4 text-neutral-400 pointer-events-none" />
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
+                autoComplete="current-password"
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (errors.password)
                     setErrors((prev) => ({ ...prev, password: undefined }));
                 }}
                 placeholder={t("placeholders.password")}
-                className={`w-full rounded-xl bg-white/5 border ps-10 pe-10 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20 ${
-                  errors.password ? "border-red-500/40" : "border-white/10"
+                className={`w-full rounded-xl bg-neutral-950 border ps-10 pe-11 py-3 sm:py-2.5 text-base sm:text-sm text-neutral-100 placeholder:text-neutral-500 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20 ${
+                  errors.password ? "border-red-500/40" : "border-neutral-800"
                 }`}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
-                className="absolute end-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition"
+                aria-label="Toggle password visibility"
+                className="absolute end-0 h-full px-3.5 flex items-center text-neutral-400 hover:text-neutral-200 transition"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
             {errors.password && (
-              <p className="mt-1 text-xs text-red-400">{errors.password}</p>
+              <p className="mt-1.5 text-xs text-red-400">{errors.password}</p>
             )}
           </div>
 
-          <div className="flex items-center justify-between text-sm">
-            <label className="flex items-center gap-2 text-white/70 cursor-pointer select-none">
+          {/* Remember me & Forgot Password */}
+          <div className="flex items-center justify-between text-xs sm:text-sm pt-1">
+            <label className="flex items-center gap-2 text-neutral-200 cursor-pointer select-none py-1">
               <input
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="h-4 w-4 rounded border-white/20 bg-white/5 accent-violet-500"
+                className="h-4 w-4 rounded border-neutral-700 bg-neutral-950 accent-violet-500 cursor-pointer"
               />
-              {t("rememberMe")}
+              <span>{t("rememberMe")}</span>
             </label>
-            <Link href="/forgot-password" className="text-violet-400 hover:text-violet-300 transition">
+            <Link
+              href={`/${locale}/forgot-password`}
+              className="text-violet-400 hover:text-violet-300 transition py-1"
+            >
               {t("forgotPassword")}
             </Link>
           </div>
 
-          <motion.button
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.985 }}
+          {/* Submit Button */}
+          <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 py-2.5 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 py-3 sm:py-2.5 text-sm font-semibold text-white hover:opacity-95 active:opacity-90 transition disabled:opacity-60 shadow-lg shadow-violet-500/20 mt-2"
           >
             {isSubmitting ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             ) : (
               <>
-                {t("submit")}
+                <span>{t("submit")}</span>
                 <ArrowRight className="h-4 w-4 rtl:rotate-180" />
               </>
             )}
-          </motion.button>
+          </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-white/50">
+        {/* Footer Link */}
+        <p className="mt-6 text-center text-xs sm:text-sm text-neutral-300">
           {t("noAccount")}{" "}
-          <Link href="/signup" className="text-violet-400 hover:text-violet-300 transition">
+          <Link
+            href={`/${locale}/signup`}
+            className="font-medium text-violet-400 hover:text-violet-300 transition underline-offset-4 hover:underline"
+          >
             {t("signUp")}
           </Link>
         </p>
       </div>
-    </motion.div>
+    </div>
   );
 }

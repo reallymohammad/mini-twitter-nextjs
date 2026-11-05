@@ -46,6 +46,13 @@
     
   },
 
+   "userMenu": {
+    "loadError": "بارگذاری حساب‌ها با خطا مواجه شد.",
+    "switchError": "تغییر حساب با خطا مواجه شد.",
+    "addAccount": "افزودن حساب موجود",
+    "logoutUser": "خروج از @{username}"
+  },
+
   "Composer": {
     "postPlaceholder": "چه خبر؟",
     "replyPlaceholder": "پاسخ خود را بنویسید...",
@@ -122,6 +129,7 @@
       "next": "ادامه",
       "back": "بازگشت",
       "submit": "ایجاد حساب",
+       "submitting": "در حال ایجاد حساب...",
       "haveAccount": "از قبل حساب کاربری دارید؟",
       "signIn": "ورود"
     }

@@ -101,8 +101,12 @@ export default function SignupForm() {
         setServerError(data.error ?? "Signup failed.");
         return;
       }
+if (!data.redirectTo) {
+  setServerError("Redirect path missing.");
+  return;
+}
+router.push(data.redirectTo);
 
-      router.push(data.redirectTo);
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
