@@ -110,7 +110,6 @@ export default function ChatWindow({
     let hasConnectedBefore = false;
     let pendingReadNotice = false;
 
-    // استفاده از کانال مشخص با الگوی استاندارد
     const channelName = `dm:${conversationId}`;
     const channel = supabase.channel(channelName, {
       config: {
@@ -121,39 +120,12 @@ export default function ChatWindow({
     channelRef.current = channel;
     connectedRef.current = false;
 
-    if (process.env.NODE_ENV === "development") {
-      console.info("[DM Realtime][debug] listener registered", {
-        conversationId,
-        channelName,
-        table: "public.Message",
-        filteredSubscription: `conversationId=eq.${conversationId}`,
-      });
-
-      channel.on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "Message",
-        },
-        (payload) => {
-          const newRow = payload.new as Record<string, unknown>;
-          const oldRow = payload.old as Record<string, unknown>;
-          const eventConversationId =
-            newRow?.conversationId ?? oldRow?.conversationId;
-
-          console.info("[DM Realtime][debug] unfiltered event", {
-            eventType: payload.eventType,
-            messageId: newRow?.id ?? oldRow?.id ?? null,
-            eventConversationId: eventConversationId ?? null,
-            matchesCurrentConversation:
-              typeof eventConversationId === "string"
-                ? eventConversationId === conversationId
-                : "unknown",
-          });
-        }
-      );
-    }
+    console.info("[DM Realtime][diagnostic] listener registered", {
+      conversationId,
+      channelName,
+      table: "public.Message",
+      insertSubscription: "unfiltered (temporary diagnostic)",
+    });
 
     const sendReadNotice = async () => {
       if (!active || !connectedRef.current) {
@@ -208,16 +180,42 @@ export default function ChatWindow({
           event: "INSERT",
           schema: "public",
           table: "Message",
-          filter: `conversationId=eq.${conversationId}`,
+          // فقط برای تست: فیلتر سمت Supabase موقتاً حذف شده است.
         },
         (payload) => {
-          const newMsg = payload.new as Message;
+          if (!active) return;
 
-          console.info("[DM Realtime] INSERT", {
+          const newRow = payload.new as Record<string, unknown>;
+          const eventConversationId = newRow.conversationId;
+          const messageId = newRow.id;
+          const senderId = newRow.senderId;
+          const matchesCurrentConversation =
+            eventConversationId === conversationId;
+
+          // عمداً کل payload را لاگ نمی‌کنیم، چون محتوای پیام دارد.
+          console.info("[DM Realtime][diagnostic] INSERT unfiltered", {
             conversationId,
-            messageId: newMsg.id,
-            senderId: newMsg.senderId,
+            eventConversationId: eventConversationId ?? null,
+            messageId: messageId ?? null,
+            matchesCurrentConversation,
           });
+
+          // جلوگیری از نمایش پیام گفتگوهای دیگر در همین پنجره
+          if (!matchesCurrentConversation) return;
+
+          if (
+            typeof messageId !== "string" ||
+            typeof senderId !== "string"
+          ) {
+            console.warn("[DM Realtime] INSERT has unexpected fields", {
+              conversationId,
+              messageId,
+              senderId,
+            });
+            return;
+          }
+
+          const newMsg = payload.new as unknown as Message;
 
           setMessagesList((prev) => {
             if (prev.some((message) => message.id === newMsg.id)) {
@@ -244,6 +242,8 @@ export default function ChatWindow({
           filter: `conversationId=eq.${conversationId}`,
         },
         (payload) => {
+          if (!active) return;
+
           const updatedMsg = payload.new as Partial<Message> & {
             id: string;
           };
@@ -274,6 +274,8 @@ export default function ChatWindow({
           filter: `conversationId=eq.${conversationId}`,
         },
         (payload) => {
+          if (!active) return;
+
           const deletedId = payload.old?.id;
 
           console.info("[DM Realtime] DELETE", {
@@ -292,6 +294,7 @@ export default function ChatWindow({
         "broadcast",
         { event: "typing" },
         ({ payload }) => {
+          if (!active) return;
           if (payload?.senderId === currentUserId) return;
           if (typeof payload?.isTyping !== "boolean") return;
 
@@ -317,6 +320,7 @@ export default function ChatWindow({
         "broadcast",
         { event: "read" },
         ({ payload }) => {
+          if (!active) return;
           if (payload?.senderId === currentUserId) return;
 
           console.info("[DM Realtime] read notice received", {
@@ -366,16 +370,19 @@ export default function ChatWindow({
         clearTimeout(typingTimeoutRef.current);
       }
 
-      setIsOtherUserTyping(false);
-
       if (channelRef.current === channel) {
         channelRef.current = null;
       }
 
-      // ترتیب صحیح پاکسازی برای جلوگیری از ارور CLOSED در StrictMode
-      channel.unsubscribe().then(() => {
-        supabase.removeChannel(channel);
-      });
+      void channel
+        .unsubscribe()
+        .then(() => supabase.removeChannel(channel))
+        .catch((error: unknown) => {
+          console.error("[DM Realtime] channel cleanup failed", {
+            conversationId,
+            error,
+          });
+        });
     };
   }, [conversationId, currentUserId, router]);
 
