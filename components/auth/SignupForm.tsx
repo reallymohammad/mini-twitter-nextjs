@@ -338,7 +338,7 @@ router.push(data.redirectTo);
             href="/login"
             className="text-violet-400 hover:text-violet-300 transition"
           >
-            {t("signIn")}
+            {t("login")}
           </Link>
         </p>
       </div>
