@@ -3,10 +3,10 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
-  useMemo,
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -25,7 +25,12 @@ import MessageInput from "./MessageInput";
 import {
   markConversationAsRead,
   deleteConversation,
+  getMessagesSince,
 } from "@/lib/dm/actions";
+import type {
+  DirectMessagePayload,
+  MessageCursor,
+} from "@/lib/dm/types";
 import { supabase } from "@/lib/supabase/client";
 
 export interface Recipient {
@@ -37,16 +42,8 @@ export interface Recipient {
   isOnline?: boolean;
 }
 
-export interface MessageItem {
-  id: string;
-  senderId: string;
-  conversationId: string;
-  content: string | null;
+export interface MessageItem extends DirectMessagePayload {
   text?: string;
-  mediaUrls: string[];
-  createdAt: string | Date;
-  readAt?: string | Date | null;
-  isSeen?: boolean;
 }
 
 interface ChatWindowProps {
@@ -57,7 +54,41 @@ interface ChatWindowProps {
   locale?: string;
 }
 
-export default function ChatWindow({
+function comparePositions(
+  a: { createdAt: string | Date; id: string },
+  b: { createdAt: string | Date; id: string }
+) {
+  const timeDifference =
+    new Date(a.createdAt).getTime() -
+    new Date(b.createdAt).getTime();
+
+  if (timeDifference !== 0) return timeDifference;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function initialCursor(messages: any[]): MessageCursor | null {
+  const validMessages = (messages || []).filter(
+    (msg) =>
+      typeof msg?.id === "string" &&
+      !Number.isNaN(new Date(msg.createdAt).getTime())
+  );
+
+  if (validMessages.length === 0) return null;
+
+  const last = [...validMessages].sort(comparePositions).at(-1)!;
+
+  return {
+    createdAt: new Date(last.createdAt).toISOString(),
+    id: last.id,
+  };
+}
+
+// با تغییر گفتگو، state و صف Broadcast مربوط به گفتگوی قبلی باقی نمی‌ماند.
+export default function ChatWindow(props: ChatWindowProps) {
+  return <ChatWindowContent key={props.conversationId} {...props} />;
+}
+
+function ChatWindowContent({
   conversationId,
   currentUserId,
   recipient,
@@ -67,159 +98,466 @@ export default function ChatWindow({
   const router = useRouter();
 
   const normalizeIncomingMessage = useCallback(
-    (raw: any): MessageItem => {
-      return {
-        id: raw.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        senderId: raw.senderId || "",
-        conversationId: raw.conversationId || conversationId,
-        content: raw.content ?? raw.text ?? null,
-        mediaUrls: Array.isArray(raw.mediaUrls) ? raw.mediaUrls : [],
-        createdAt: raw.createdAt || new Date().toISOString(),
-        readAt: raw.readAt ?? null,
-        isSeen: raw.isSeen ?? Boolean(raw.readAt),
-      };
-    },
+    (raw: DirectMessagePayload & { text?: string }): MessageItem => ({
+      id: raw.id,
+      senderId: raw.senderId,
+      conversationId: raw.conversationId || conversationId,
+      content: raw.content ?? raw.text ?? null,
+      mediaUrls: Array.isArray(raw.mediaUrls) ? raw.mediaUrls : [],
+      createdAt: raw.createdAt,
+      readAt: raw.readAt ?? null,
+      isSeen: raw.isSeen ?? Boolean(raw.readAt),
+      deletedAt: raw.deletedAt ?? null,
+    }),
     [conversationId]
   );
 
   const [messages, setMessages] = useState<MessageItem[]>(() =>
-    (initialMessages || []).map(normalizeIncomingMessage)
+    (initialMessages || [])
+      .filter((msg) => typeof msg?.id === "string" && !msg.deletedAt)
+      .map(normalizeIncomingMessage)
+      .sort(comparePositions)
   );
 
   const [isRecipientTyping, setIsRecipientTyping] = useState(false);
   const [isRecipientOnline, setIsRecipientOnline] = useState(
     Boolean(recipient.isOnline)
   );
-
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeletingConversation, startDeleteConversationTransition] =
     useTransition();
+  const [showScrollBottomButton, setShowScrollBottomButton] =
+    useState(false);
 
-  const [showScrollBottomButton, setShowScrollBottomButton] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null
+  );
+  const channelReadyRef = useRef(false);
+  const mountedRef = useRef(true);
+  const pendingBroadcastsRef = useRef<DirectMessagePayload[]>([]);
+
+  // این cursor با دریافت Broadcast جلو نمی‌رود.
+  const recoveryCursorRef = useRef<MessageCursor | null>(
+    initialCursor(initialMessages)
+  );
+  const reconcilingRef = useRef(false);
+  const reconcileAgainRef = useRef(false);
 
   const avatarSrc = recipient.image || recipient.avatarUrl || null;
 
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current) return;
+
     const { scrollTop, scrollHeight, clientHeight } =
       messagesContainerRef.current;
-    const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 250;
-    setShowScrollBottomButton(isFarFromBottom);
+
+    setShowScrollBottomButton(
+      scrollHeight - scrollTop - clientHeight > 250
+    );
   }, []);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  }, []);
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    },
+    []
+  );
 
   useEffect(() => {
     scrollToBottom("auto");
   }, [scrollToBottom]);
 
+  const appendOrUpdateMessage = useCallback(
+    (incoming: DirectMessagePayload) => {
+      if (
+        !incoming ||
+        typeof incoming.id !== "string" ||
+        !incoming.id ||
+        incoming.conversationId !== conversationId
+      ) {
+        return;
+      }
+
+      if (incoming.deletedAt) {
+        setMessages((previous) =>
+          previous.filter((message) => message.id !== incoming.id)
+        );
+        return;
+      }
+
+      const normalized = normalizeIncomingMessage(incoming);
+
+      setMessages((previous) => {
+        const index = previous.findIndex(
+          (message) => message.id === normalized.id
+        );
+
+        if (index !== -1) {
+          const updated = [...previous];
+          const existing = updated[index];
+
+          updated[index] = {
+            ...existing,
+            ...normalized,
+            readAt: normalized.readAt ?? existing.readAt,
+            isSeen: Boolean(existing.isSeen || normalized.isSeen),
+          };
+
+          return updated;
+        }
+
+        return [...previous, normalized].sort(comparePositions);
+      });
+
+      // پیام تازهٔ خود کاربر همیشه دیده شود؛ خواندن تاریخچهٔ قدیمی
+      // در اثر رسیدن پیام دیگران بی‌دلیل قطع نشود.
+      const container = messagesContainerRef.current;
+      const nearBottom =
+        !container ||
+        container.scrollHeight -
+          container.scrollTop -
+          container.clientHeight <
+          250;
+
+      if (nearBottom || incoming.senderId === currentUserId) {
+        window.setTimeout(() => scrollToBottom("smooth"), 60);
+      }
+    },
+    [
+      conversationId,
+      currentUserId,
+      normalizeIncomingMessage,
+      scrollToBottom,
+    ]
+  );
+
+  const enqueueBroadcast = useCallback(
+    (message: DirectMessagePayload) => {
+      if (
+        !mountedRef.current ||
+        message.conversationId !== conversationId
+      ) {
+        return;
+      }
+
+      if (
+        pendingBroadcastsRef.current.some(
+          (queued) => queued.id === message.id
+        )
+      ) {
+        return;
+      }
+
+      pendingBroadcastsRef.current.push(message);
+
+      if (pendingBroadcastsRef.current.length > 50) {
+        pendingBroadcastsRef.current.shift();
+        console.warn(
+          "[DM Realtime] Pending broadcast queue reached its limit."
+        );
+      }
+    },
+    [conversationId]
+  );
+
+  const flushPendingBroadcasts = useCallback(async () => {
+    const channel = channelRef.current;
+
+    if (!mountedRef.current || !channelReadyRef.current || !channel) {
+      return;
+    }
+
+    while (
+      mountedRef.current &&
+      channelReadyRef.current &&
+      channelRef.current === channel &&
+      pendingBroadcastsRef.current.length > 0
+    ) {
+      const next = pendingBroadcastsRef.current[0];
+
+      try {
+        const status = await channel.send({
+          type: "broadcast",
+          event: "new_message",
+          payload: next,
+        });
+
+        if (status !== "ok") {
+          console.error(
+            "[DM Realtime] Queued broadcast was not acknowledged:",
+            status,
+            next.id
+          );
+          break;
+        }
+
+        if (!mountedRef.current || channelRef.current !== channel) {
+          break;
+        }
+
+        pendingBroadcastsRef.current.shift();
+      } catch (error) {
+        console.error(
+          "[DM Realtime] Queued broadcast failed:",
+          error
+        );
+        break;
+      }
+    }
+  }, []);
+
+  const broadcastSafely = useCallback(
+    async (message: DirectMessagePayload) => {
+      if (
+        !mountedRef.current ||
+        message.conversationId !== conversationId
+      ) {
+        return;
+      }
+
+      const channel = channelRef.current;
+
+      if (!channelReadyRef.current || !channel) {
+        enqueueBroadcast(message);
+        return;
+      }
+
+      try {
+        const status = await channel.send({
+          type: "broadcast",
+          event: "new_message",
+          payload: message,
+        });
+
+        if (status !== "ok") {
+          console.error(
+            "[DM Realtime] Broadcast was not acknowledged:",
+            status,
+            message.id
+          );
+          enqueueBroadcast(message);
+        }
+      } catch (error) {
+        console.error("[DM Realtime] Broadcast failed:", error);
+        enqueueBroadcast(message);
+      }
+    },
+    [conversationId, enqueueBroadcast]
+  );
+
+  const handleMessageSent = useCallback(
+    (message: DirectMessagePayload) => {
+      if (message.conversationId !== conversationId) return;
+
+      appendOrUpdateMessage(message);
+      void broadcastSafely({
+        ...message,
+        createdAt: new Date(message.createdAt).toISOString(),
+      });
+    },
+    [appendOrUpdateMessage, broadcastSafely, conversationId]
+  );
+
+  const handleTypingChange = useCallback(
+    (isTyping: boolean) => {
+      const channel = channelRef.current;
+
+      if (!channelReadyRef.current || !channel) return;
+
+      void channel
+        .send({
+          type: "broadcast",
+          event: "typing_status",
+          payload: {
+            conversationId,
+            userId: currentUserId,
+            isTyping,
+          },
+        })
+        .catch((error) => {
+          console.error("[DM Realtime] Typing broadcast failed:", error);
+        });
+    },
+    [conversationId, currentUserId]
+  );
+
   const handleMarkAsRead = useCallback(async () => {
     try {
-      await markConversationAsRead(conversationId);
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "read_notice",
-        payload: { conversationId, readerId: currentUserId },
-      });
-    } catch (err) {
-      console.error("[DM Realtime] Failed to mark as read:", err);
+      const result = await markConversationAsRead(conversationId);
+      const channel = channelRef.current;
+
+      if (channelReadyRef.current && channel) {
+        const status = await channel.send({
+          type: "broadcast",
+          event: "read_notice",
+          payload: {
+            conversationId,
+            readerId: currentUserId,
+            readAt: result.lastReadAt.toISOString(),
+          },
+        });
+
+        if (status !== "ok") {
+          console.warn(
+            "[DM Realtime] Read notice was not acknowledged:",
+            status
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[DM Realtime] Failed to mark as read:", error);
     }
   }, [conversationId, currentUserId]);
 
   useEffect(() => {
-    handleMarkAsRead();
+    void handleMarkAsRead();
   }, [handleMarkAsRead]);
 
-  const appendOrUpdateMessage = useCallback(
-    (incoming: any) => {
-      const normalized = normalizeIncomingMessage(incoming);
-
-      setMessages((prev) => {
-        const index = prev.findIndex(
-          (m) =>
-            m.id === normalized.id ||
-            (m.content === normalized.content &&
-              m.senderId === normalized.senderId &&
-              Math.abs(
-                new Date(m.createdAt).getTime() -
-                  new Date(normalized.createdAt).getTime()
-              ) < 3000)
-        );
-
-        if (index !== -1) {
-          const updated = [...prev];
-          updated[index] = { ...updated[index], ...normalized };
-          return updated;
-        }
-        return [...prev, normalized];
-      });
-      setTimeout(() => scrollToBottom("smooth"), 60);
-    },
-    [normalizeIncomingMessage, scrollToBottom]
-  );
-
   useEffect(() => {
-    const channelName = `dm:${conversationId}`;
-    const channel = supabase.channel(channelName, {
+    mountedRef.current = true;
+    let disposed = false;
+
+    const channel = supabase.channel(`dm:${conversationId}`, {
       config: {
         presence: { key: currentUserId },
-        broadcast: { self: false },
+        broadcast: { self: false, ack: true },
       },
     });
 
     channelRef.current = channel;
+    channelReadyRef.current = false;
 
-    channel.on("broadcast", { event: "new_message" }, (payload) => {
-      const msg = payload.payload;
-      if (msg && msg.conversationId === conversationId) {
-        appendOrUpdateMessage(msg);
-        if (msg.senderId !== currentUserId) {
-          handleMarkAsRead();
-        }
+    const reconcile = async () => {
+      if (reconcilingRef.current) {
+        reconcileAgainRef.current = true;
+        return;
+      }
+
+      reconcilingRef.current = true;
+
+      try {
+        do {
+          reconcileAgainRef.current = false;
+          let hasMore = true;
+
+          while (hasMore && !disposed) {
+            const page = await getMessagesSince(
+              conversationId,
+              recoveryCursorRef.current
+            );
+
+            if (disposed) return;
+
+            for (const message of page.messages) {
+              appendOrUpdateMessage(message);
+            }
+
+            // فقط پاسخ مرتب پایگاه‌داده cursor را جلو می‌برد.
+            recoveryCursorRef.current =
+              page.nextCursor ?? recoveryCursorRef.current;
+            hasMore = page.hasMore;
+          }
+        } while (reconcileAgainRef.current && !disposed);
+      } catch (error) {
+        console.error("[DM Realtime] Message recovery failed:", error);
+      } finally {
+        reconcilingRef.current = false;
+      }
+    };
+
+    const handleReconnectOpportunity = () => {
+      if (document.visibilityState === "visible") {
+        void reconcile();
+        void flushPendingBroadcasts();
+      }
+    };
+
+    const handleOnline = () => {
+      void reconcile();
+      void flushPendingBroadcasts();
+    };
+
+    channel.on("broadcast", { event: "new_message" }, ({ payload }) => {
+      const message = payload as DirectMessagePayload | undefined;
+
+      if (message?.conversationId !== conversationId) return;
+
+      appendOrUpdateMessage(message);
+
+      if (message.senderId !== currentUserId) {
+        void handleMarkAsRead();
       }
     });
 
-    channel.on("broadcast", { event: "read_notice" }, (payload) => {
-      if (payload.payload?.conversationId === conversationId) {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.senderId === currentUserId
-              ? { ...msg, readAt: new Date().toISOString(), isSeen: true }
-              : msg
-          )
-        );
+    channel.on("broadcast", { event: "read_notice" }, ({ payload }) => {
+      const notice = payload as
+        | {
+            conversationId?: string;
+            readerId?: string;
+            readAt?: string;
+          }
+        | undefined;
+
+      if (
+        notice?.conversationId !== conversationId ||
+        notice.readerId !== recipient.id ||
+        !notice.readAt
+      ) {
+        return;
       }
+
+      const readTime = new Date(notice.readAt).getTime();
+      if (Number.isNaN(readTime)) return;
+
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.senderId === currentUserId &&
+          new Date(message.createdAt).getTime() <= readTime
+            ? {
+                ...message,
+                readAt: notice.readAt,
+                isSeen: true,
+              }
+            : message
+        )
+      );
     });
 
-    channel.on("broadcast", { event: "typing_status" }, (payload) => {
-      if (payload.payload?.userId === recipient.id) {
-        setIsRecipientTyping(Boolean(payload.payload.isTyping));
+    channel.on("broadcast", { event: "typing_status" }, ({ payload }) => {
+      if (
+        payload?.conversationId !== conversationId ||
+        payload?.userId !== recipient.id
+      ) {
+        return;
+      }
 
-        if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current);
-        }
+      setIsRecipientTyping(Boolean(payload.isTyping));
 
-        if (payload.payload.isTyping) {
-          typingTimeoutRef.current = setTimeout(() => {
-            setIsRecipientTyping(false);
-          }, 3500);
-        }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      if (payload.isTyping) {
+        typingTimeoutRef.current = setTimeout(() => {
+          setIsRecipientTyping(false);
+        }, 3500);
       }
     });
 
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const isOnline = Object.keys(state).includes(recipient.id);
-        setIsRecipientOnline(isOnline);
+        setIsRecipientOnline(
+          Object.keys(state).includes(recipient.id)
+        );
       })
       .on("presence", { event: "join" }, ({ key }) => {
         if (key === recipient.id) setIsRecipientOnline(true);
@@ -237,13 +575,15 @@ export default function ChatWindow({
           table: "Message",
           filter: `conversationId=eq.${conversationId}`,
         },
-        (payload) => {
-          const newMsg = payload.new;
-          if (newMsg) {
-            appendOrUpdateMessage(newMsg);
-            if (newMsg.senderId !== currentUserId) {
-              handleMarkAsRead();
-            }
+        ({ new: row }) => {
+          const message = row as unknown as DirectMessagePayload;
+
+          if (message?.conversationId !== conversationId) return;
+
+          appendOrUpdateMessage(message);
+
+          if (message.senderId !== currentUserId) {
+            void handleMarkAsRead();
           }
         }
       )
@@ -255,10 +595,11 @@ export default function ChatWindow({
           table: "Message",
           filter: `conversationId=eq.${conversationId}`,
         },
-        (payload) => {
-          const updatedMsg = payload.new;
-          if (updatedMsg) {
-            appendOrUpdateMessage(updatedMsg);
+        ({ new: row }) => {
+          const message = row as unknown as DirectMessagePayload;
+
+          if (message?.conversationId === conversationId) {
+            appendOrUpdateMessage(message);
           }
         }
       )
@@ -269,31 +610,83 @@ export default function ChatWindow({
           schema: "public",
           table: "Message",
         },
-        (payload) => {
-          const deletedId = (payload.old as { id?: string })?.id;
+        ({ old: row }) => {
+          const deletedId = (row as { id?: string })?.id;
+
           if (deletedId) {
-            setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+            setMessages((previous) =>
+              previous.filter((message) => message.id !== deletedId)
+            );
           }
         }
       );
 
-    channel.subscribe(async (status) => {
+    channel.subscribe((status, error) => {
+      if (disposed) return;
+
       if (status === "SUBSCRIBED") {
-        await channel.track({ online_at: new Date().toISOString() });
+        channelReadyRef.current = true;
+        void channel
+          .track({ online_at: new Date().toISOString() })
+          .catch((trackError) => {
+            console.error(
+              "[DM Realtime] Presence tracking failed:",
+              trackError
+            );
+          });
+
+        void flushPendingBroadcasts();
+        void reconcile();
+        void handleMarkAsRead();
+      } else {
+        channelReadyRef.current = false;
+
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          console.error("[DM Realtime] Channel status:", status, error);
+        }
       }
     });
 
+    document.addEventListener(
+      "visibilitychange",
+      handleReconnectOpportunity
+    );
+    window.addEventListener("focus", handleReconnectOpportunity);
+    window.addEventListener("online", handleOnline);
+
     return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      disposed = true;
+      mountedRef.current = false;
+      channelReadyRef.current = false;
+      pendingBroadcastsRef.current = [];
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleReconnectOpportunity
+      );
+      window.removeEventListener("focus", handleReconnectOpportunity);
+      window.removeEventListener("online", handleOnline);
+
+      if (channelRef.current === channel) {
+        channelRef.current = null;
+      }
+
+      void supabase.removeChannel(channel);
     };
   }, [
     conversationId,
     currentUserId,
     recipient.id,
     appendOrUpdateMessage,
+    flushPendingBroadcasts,
     handleMarkAsRead,
   ]);
 
@@ -303,21 +696,26 @@ export default function ChatWindow({
         await deleteConversation(conversationId);
         router.push(`/${locale}/messages`);
         router.refresh();
-      } catch (err) {
-        console.error("Failed to delete conversation:", err);
+      } catch (error) {
+        console.error("Failed to delete conversation:", error);
       }
     });
   };
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node)
+      ) {
         setMenuOpen(false);
       }
     }
+
     if (menuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
@@ -326,15 +724,15 @@ export default function ChatWindow({
   const groupedMessages = useMemo(() => {
     const groups: { dateLabel: string; items: MessageItem[] }[] = [];
 
-    messages.forEach((msg) => {
-      const msgDate = new Date(msg.createdAt);
+    messages.forEach((message) => {
+      const messageDate = new Date(message.createdAt);
       const isToday =
-        new Date().toDateString() === msgDate.toDateString();
+        new Date().toDateString() === messageDate.toDateString();
       const isYesterday =
         new Date(Date.now() - 86400000).toDateString() ===
-        msgDate.toDateString();
+        messageDate.toDateString();
 
-      let dateLabel = msgDate.toLocaleDateString("en-US", {
+      let dateLabel = messageDate.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
@@ -344,10 +742,11 @@ export default function ChatWindow({
       else if (isYesterday) dateLabel = "Yesterday";
 
       const currentGroup = groups[groups.length - 1];
-      if (currentGroup && currentGroup.dateLabel === dateLabel) {
-        currentGroup.items.push(msg);
+
+      if (currentGroup?.dateLabel === dateLabel) {
+        currentGroup.items.push(message);
       } else {
-        groups.push({ dateLabel, items: [msg] });
+        groups.push({ dateLabel, items: [message] });
       }
     });
 
@@ -382,7 +781,8 @@ export default function ChatWindow({
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center font-bold text-muted-foreground">
-                    {(recipient.name || recipient.username)[0]?.toUpperCase() || "?"}
+                    {(recipient.name || recipient.username)[0]?.toUpperCase() ||
+                      "?"}
                   </div>
                 )}
               </div>
@@ -412,7 +812,7 @@ export default function ChatWindow({
 
         <div className="relative" ref={menuRef}>
           <button
-            onClick={() => setMenuOpen((prev) => !prev)}
+            onClick={() => setMenuOpen((previous) => !previous)}
             className="p-2 rounded-full hover:bg-muted transition text-muted-foreground hover:text-foreground"
             aria-label="Conversation options"
           >
@@ -459,17 +859,17 @@ export default function ChatWindow({
               </span>
             </div>
 
-            {group.items.map((msg) => (
+            {group.items.map((message) => (
               <MessageBubble
-                key={msg.id}
-                isMine={msg.senderId === currentUserId}
+                key={message.id}
+                isMine={message.senderId === currentUserId}
                 message={{
-                  id: msg.id,
-                  senderId: msg.senderId,
-                  content: msg.content,
-                  mediaUrls: msg.mediaUrls,
-                  createdAt: msg.createdAt,
-                  isSeen: msg.isSeen,
+                  id: message.id,
+                  senderId: message.senderId,
+                  content: message.content,
+                  mediaUrls: message.mediaUrls,
+                  createdAt: message.createdAt,
+                  isSeen: message.isSeen,
                 }}
               />
             ))}
@@ -501,7 +901,11 @@ export default function ChatWindow({
 
       {/* Message Input Area */}
       <div className="p-3 border-t border-border bg-background/95 backdrop-blur">
-        <MessageInput conversationId={conversationId} />
+        <MessageInput
+          conversationId={conversationId}
+          onTypingChange={handleTypingChange}
+          onMessageSent={handleMessageSent}
+        />
       </div>
 
       {/* Delete Conversation Modal */}
@@ -510,7 +914,8 @@ export default function ChatWindow({
           <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
             <h3 className="text-lg font-bold">Delete conversation?</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              This will delete the entire conversation history from your inbox. This action cannot be undone.
+              This will delete the entire conversation history from your
+              inbox. This action cannot be undone.
             </p>
             <div className="flex items-center justify-end gap-3 pt-3">
               <button

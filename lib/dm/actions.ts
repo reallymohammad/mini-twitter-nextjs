@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import type { Prisma } from "@prisma/client";
-
+import type { MessageCursor } from "@/lib/dm/types";
 
 async function requireCurrentUserId(): Promise<string> {
   const user = await getCurrentUser();
@@ -16,7 +16,6 @@ async function requireCurrentUserId(): Promise<string> {
 }
 
 function makeParticipantsKey(userAId: string, userBId: string): string {
-  // ترتیب الفبایی ثابت باعث می‌شود A:B و B:A کلید یکسانی داشته باشند
   return [userAId, userBId].sort().join(":");
 }
 
@@ -99,7 +98,7 @@ export async function startDirectConversation(targetUserId: string) {
 
   const participantsKey = makeParticipantsKey(senderId, targetUserId);
 
-  const result = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const recipient = await tx.user.findUnique({
       where: { id: targetUserId },
       select: {
@@ -170,15 +169,10 @@ export async function startDirectConversation(targetUserId: string) {
 
     return { conversationId: conversation.id };
   });
-
-  return result;
 }
 
 /**
- * ارسال پیام مستقیم به یک گفت‌وگوی دونفره
- */
-/**
- * ارسال پیام مستقیم به یک گفت‌وگوی دونفره
+ * ذخیرهٔ پیام و برگرداندن همان رکورد برای نمایش و Broadcast
  */
 export async function sendDirectMessage(input: {
   conversationId: string;
@@ -187,7 +181,11 @@ export async function sendDirectMessage(input: {
 }) {
   const senderId = await requireCurrentUserId();
 
-  if (!input || typeof input.conversationId !== "string" || !input.conversationId) {
+  if (
+    !input ||
+    typeof input.conversationId !== "string" ||
+    !input.conversationId
+  ) {
     throw new Error("شناسهٔ گفتگو معتبر نیست.");
   }
 
@@ -195,7 +193,10 @@ export async function sendDirectMessage(input: {
     typeof input.content === "string" ? input.content.trim() : null;
   const mediaUrls = input.mediaUrls ?? [];
 
-  if (!Array.isArray(mediaUrls) || mediaUrls.some((url) => typeof url !== "string")) {
+  if (
+    !Array.isArray(mediaUrls) ||
+    mediaUrls.some((url) => typeof url !== "string")
+  ) {
     throw new Error("فهرست فایل‌های پیوست معتبر نیست.");
   }
 
@@ -203,7 +204,6 @@ export async function sendDirectMessage(input: {
     throw new Error("متن یا فایل پیوست برای پیام لازم است.");
   }
 
-  // افزایش تایم‌اوت به ۱۵ ثانیه برای جلوگیری از خطای تاخیر اینترنت با Supabase
   const result = await prisma.$transaction(
     async (tx) => {
       const membership = await tx.userConversation.findUnique({
@@ -242,7 +242,9 @@ export async function sendDirectMessage(input: {
       const conversation = membership.conversation;
 
       if (conversation.isGroup || conversation.participants.length !== 2) {
-        throw new Error("این عملیات فعلاً فقط برای گفت‌وگوی دونفره فعال است.");
+        throw new Error(
+          "این عملیات فعلاً فقط برای گفت‌وگوی دونفره فعال است."
+        );
       }
 
       const recipient = conversation.participants.find(
@@ -255,7 +257,6 @@ export async function sendDirectMessage(input: {
 
       await assertNoBlock(tx, senderId, recipient.userId);
 
-      // ۱. ثبت پیام
       const message = await tx.message.create({
         data: {
           conversationId: input.conversationId,
@@ -273,7 +274,6 @@ export async function sendDirectMessage(input: {
         },
       });
 
-      // ۲. فعال‌سازی مجدد گفتگو در صورت حذف قبلی
       await tx.userConversation.updateMany({
         where: {
           conversationId: input.conversationId,
@@ -292,28 +292,117 @@ export async function sendDirectMessage(input: {
       };
     },
     {
-      maxWait: 10000, // حداکثر زمان انتظار برای شروع ترنزکشن (۱۰ ثانیه)
-      timeout: 20000, // حداکثر زمان مجاز اجرای ترنزکشن (۲۰ ثانیه به جای ۵ ثانیه)
+      maxWait: 10000,
+      timeout: 20000,
     }
   );
 
-  // ارسال نوتیفیکیشن خارج از ترنزکشن برای افزایش سرعت ذخیره‌سازی پیام
+  // خطای اعلان نباید ارسال پیامِ ذخیره‌شده را ناموفق جلوه دهد.
   if (result.shouldNotify) {
-    prisma.notification
-      .create({
+    try {
+      await prisma.notification.create({
         data: {
           type: "MESSAGE",
           recipientId: result.recipientId,
           actorId: senderId,
           messageId: result.message.id,
         },
-      })
-      .catch((err) => console.error("Notification creation failed:", err));
+      });
+    } catch (error) {
+      console.error("[DM] Notification creation failed:", error);
+    }
   }
 
   return result.message;
 }
 
+/**
+ * بازیابی پیام‌های بعد از یک موقعیت مشخص.
+ * cursor فقط با نتایج همین تابع جلو می‌رود، نه با Broadcastهای دریافتی.
+ */
+export async function getMessagesSince(
+  conversationId: string,
+  cursor: MessageCursor | null = null
+) {
+  const userId = await requireCurrentUserId();
+
+  if (typeof conversationId !== "string" || !conversationId) {
+    throw new Error("شناسهٔ گفتگو معتبر نیست.");
+  }
+
+  const membership = await prisma.userConversation.findUnique({
+    where: {
+      userId_conversationId: { userId, conversationId },
+    },
+    select: { userId: true },
+  });
+
+  if (!membership) {
+    throw new Error("شما عضو این گفتگو نیستید.");
+  }
+
+  let cursorDate: Date | null = null;
+
+  if (cursor !== null) {
+    if (
+      !cursor ||
+      typeof cursor.id !== "string" ||
+      !cursor.id ||
+      typeof cursor.createdAt !== "string"
+    ) {
+      throw new Error("نشانگر پیام معتبر نیست.");
+    }
+
+    cursorDate = new Date(cursor.createdAt);
+
+    if (Number.isNaN(cursorDate.getTime())) {
+      throw new Error("تاریخ نشانگر پیام معتبر نیست.");
+    }
+  }
+
+  const rows = await prisma.message.findMany({
+    where: {
+      conversationId,
+      deletedAt: null,
+      ...(cursorDate && cursor
+        ? {
+            OR: [
+              { createdAt: { gt: cursorDate } },
+              {
+                createdAt: cursorDate,
+                id: { gt: cursor.id },
+              },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 201,
+    select: {
+      id: true,
+      conversationId: true,
+      senderId: true,
+      content: true,
+      mediaUrls: true,
+      createdAt: true,
+    },
+  });
+
+  const hasMore = rows.length > 200;
+  const messages = hasMore ? rows.slice(0, 200) : rows;
+  const last = messages.at(-1);
+
+  return {
+    messages,
+    hasMore,
+    nextCursor: last
+      ? {
+          createdAt: last.createdAt.toISOString(),
+          id: last.id,
+        }
+      : cursor,
+  };
+}
 
 /**
  * نشانه‌گذاری پیام‌های گفتگو به‌عنوان خوانده‌شده
@@ -336,18 +425,20 @@ export async function markConversationAsRead(conversationId: string) {
     throw new Error("شما عضو این گفتگو نیستید.");
   }
 
+  const lastReadAt = new Date();
+
   await prisma.userConversation.update({
     where: {
       userId_conversationId: { userId, conversationId },
     },
     data: {
-      lastReadAt: new Date(),
+      lastReadAt,
       isDeleted: false,
       deletedAt: null,
     },
   });
 
-  return { success: true };
+  return { success: true, lastReadAt };
 }
 
 /**
@@ -384,9 +475,8 @@ export async function getConversations() {
               },
             },
           },
-          // در تابع getConversations، بخش واکشی messages را به این شکل تغییر دهید:
           messages: {
-            where: { deletedAt: null }, // پیام‌های حذف‌شده به عنوان آخرین پیام نشان داده نشوند
+            where: { deletedAt: null },
             take: 1,
             orderBy: { createdAt: "desc" },
             select: {
@@ -397,7 +487,6 @@ export async function getConversations() {
               senderId: true,
             },
           },
-
         },
       },
     },
@@ -414,7 +503,8 @@ export async function getConversations() {
     const hasUnread = Boolean(
       lastMessage &&
         lastMessage.senderId !== userId &&
-        (!uc.lastReadAt || new Date(uc.lastReadAt) < new Date(lastMessage.createdAt))
+        (!uc.lastReadAt ||
+          new Date(uc.lastReadAt) < new Date(lastMessage.createdAt))
     );
 
     return {
@@ -438,18 +528,28 @@ export async function getConversations() {
 /**
  * دریافت جزئیات و تاریخچهٔ پیام‌های یک گفتگوی معین
  */
-// در lib/dm/queries.ts
-
 export async function getConversationDetails(conversationId: string) {
   const currentUser = await getCurrentUser();
-  if (!currentUser) return null;
+  if (!currentUser || currentUser.deletedAt) return null;
 
-  // واکشی تنظیمات کاربر فعلی
+  const membership = await prisma.userConversation.findUnique({
+    where: {
+      userId_conversationId: {
+        userId: currentUser.id,
+        conversationId,
+      },
+    },
+    select: { userId: true },
+  });
+
+  if (!membership) return null;
+
   const currentUserSettings = await prisma.userSettings.findUnique({
     where: { userId: currentUser.id },
     select: { showReadReceipts: true },
   });
-  const myReadReceiptsEnabled = currentUserSettings?.showReadReceipts ?? true;
+  const myReadReceiptsEnabled =
+    currentUserSettings?.showReadReceipts ?? true;
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -489,17 +589,18 @@ export async function getConversationDetails(conversationId: string) {
 
   if (!conversation) return null;
 
-  // پیدا کردن مخاطب روبرو
   const otherParticipant = conversation.participants.find(
-    (p) => p.userId !== currentUser.id
+    (participant) => participant.userId !== currentUser.id
   );
 
   const otherReadReceiptsEnabled =
     otherParticipant?.user?.settings?.showReadReceipts ?? true;
 
-  // فقط اگر هر دو طرف سین را روشن گذاشته باشند و مخاطب زمان خواندن داشته باشد
-  const shouldShowSeen = myReadReceiptsEnabled && otherReadReceiptsEnabled;
-  const otherLastReadAt = shouldShowSeen ? otherParticipant?.lastReadAt : null;
+  const shouldShowSeen =
+    myReadReceiptsEnabled && otherReadReceiptsEnabled;
+  const otherLastReadAt = shouldShowSeen
+    ? otherParticipant?.lastReadAt
+    : null;
 
   const messagesWithSeen = conversation.messages.map((msg) => {
     const isMine = msg.senderId === currentUser.id;
@@ -509,10 +610,7 @@ export async function getConversationDetails(conversationId: string) {
         new Date(msg.createdAt) <= new Date(otherLastReadAt)
     );
 
-    return {
-      ...msg,
-      isSeen,
-    };
+    return { ...msg, isSeen };
   });
 
   return {
@@ -521,8 +619,6 @@ export async function getConversationDetails(conversationId: string) {
     messages: messagesWithSeen,
   };
 }
-
-
 
 /**
  * حذف یک پیام مشخص توسط ارسال‌کننده (Soft Delete)
@@ -550,10 +646,11 @@ export async function deleteDirectMessage(messageId: string) {
     }
 
     if (message.senderId !== userId) {
-      throw new Error("شما فقط مجاز به حذف پیام‌های ارسالی خودتان هستید.");
+      throw new Error(
+        "شما فقط مجاز به حذف پیام‌های ارسالی خودتان هستید."
+      );
     }
 
-    // علامت‌گذاری پیام به عنوان حذف‌شده
     const updatedMessage = await tx.message.update({
       where: { id: messageId },
       data: {
@@ -568,7 +665,6 @@ export async function deleteDirectMessage(messageId: string) {
       },
     });
 
-    // حذف نوتیفیکیشن مرتبط با پیام تا در لیست اعلان‌های گیرنده باقی نماند
     await tx.notification.deleteMany({
       where: { messageId },
     });
@@ -578,7 +674,7 @@ export async function deleteDirectMessage(messageId: string) {
 }
 
 /**
- * حذف/مخفی‌سازی گفت‌وگو برای کاربر جاری (Clear/Delete Chat)
+ * حذف/مخفی‌سازی گفت‌وگو برای کاربر جاری
  */
 export async function deleteConversation(conversationId: string) {
   const userId = await requireCurrentUserId();
@@ -598,7 +694,6 @@ export async function deleteConversation(conversationId: string) {
     throw new Error("شما عضو این گفتگو نیستید.");
   }
 
-  // مخفی کردن چت برای کاربر جاری و ثبت زمان حذف
   await prisma.userConversation.update({
     where: {
       userId_conversationId: { userId, conversationId },
@@ -611,8 +706,6 @@ export async function deleteConversation(conversationId: string) {
 
   return { success: true, conversationId };
 }
-// به فایل lib/dm/actions.ts اضافه کنید
-
 
 export async function toggleReadReceipts(enabled: boolean) {
   const currentUser = await getCurrentUser();

@@ -1,28 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import { SendHorizontal, Loader2 } from "lucide-react";
 import { sendDirectMessage } from "@/lib/dm/actions";
+import type { DirectMessagePayload } from "@/lib/dm/types";
 
 interface MessageInputProps {
   conversationId: string;
   onTypingChange?: (isTyping: boolean) => void;
+  onMessageSent?: (message: DirectMessagePayload) => void;
 }
 
 export default function MessageInput({
   conversationId,
   onTypingChange,
+  onMessageSent,
 }: MessageInputProps) {
   const [text, setText] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  const sendingRef = useRef(false);
   const isTypingRef = useRef(false);
   const lastTypingSentRef = useRef(0);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // توقف وضعیت تایپ و لغو تایمر
   const stopTyping = useCallback(() => {
     if (stopTimerRef.current) {
       clearTimeout(stopTimerRef.current);
@@ -35,10 +44,11 @@ export default function MessageInput({
     onTypingChange?.(false);
   }, [onTypingChange]);
 
-  // ریست کردن وضعیت هنگام Unmount شدن کامپوننت
   useEffect(() => {
     return () => {
-      if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      if (stopTimerRef.current) {
+        clearTimeout(stopTimerRef.current);
+      }
     };
   }, []);
 
@@ -46,51 +56,58 @@ export default function MessageInput({
     const value = event.target.value;
     setText(value);
 
-    // اگر متن کامل پاک شد، سریع تایپینگ خاموش شود
     if (!value.trim()) {
       stopTyping();
       return;
     }
 
     const now = Date.now();
-    // جلوگیری از ارسال بیهوده پیام تایپ با هر کلید (فقط هر ۱.۵ ثانیه یک‌بار)
+
     if (!isTypingRef.current || now - lastTypingSentRef.current >= 1500) {
       isTypingRef.current = true;
       lastTypingSentRef.current = now;
       onTypingChange?.(true);
     }
 
-    // اگر کاربر ۲.۵ ثانیه دست از تایپ برداشت، خاموش شود
-    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+    if (stopTimerRef.current) {
+      clearTimeout(stopTimerRef.current);
+    }
+
     stopTimerRef.current = setTimeout(stopTyping, 2500);
   };
 
   const handleSend = () => {
-    if (!text.trim() || isPending) return;
+    if (!text.trim() || isPending || sendingRef.current) return;
 
     const currentText = text.trim();
+    sendingRef.current = true;
 
-    // ۱. بلافاصله تایپینگ را خاموش کن تا سه نقطه برای طرف مقابل ناپدید شود
     stopTyping();
-    // ۲. خالی کردن ورودی برای حس سریع بودن (Optimistic UX)
     setText("");
 
     startTransition(async () => {
       try {
-        // فراخوانی مستقیم تابع سرور شما
-        await sendDirectMessage({
+        const savedMessage = await sendDirectMessage({
           conversationId,
           content: currentText,
         });
 
-        // رفرش صفحه جهت اطمینان از به‌روزرسانی داده‌ها
+        // شکست Realtime نباید پیام ذخیره‌شده را «ارسال‌نشده» جلوه دهد.
+        try {
+          onMessageSent?.(savedMessage);
+        } catch (error) {
+          console.error("[DM Input] Post-send UI callback failed:", error);
+        }
+
         router.refresh();
-      } catch (err: unknown) {
-        console.error("❌ [DM Input] Send Failed:", err);
-        const errorObj = err as Error;
-        alert(errorObj?.message || "خطا در ارسال پیام.");
-        // بازگرداندن متن قبلی تا کاربر زحمت تایپ مجدد نکشد
+      } catch (error) {
+        console.error("[DM Input] Send failed:", error);
+        alert(
+          error instanceof Error ? error.message : "خطا در ارسال پیام."
+        );
         setText(currentText);
+      } finally {
+        sendingRef.current = false;
       }
     });
   };
