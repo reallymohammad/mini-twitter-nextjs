@@ -115,7 +115,7 @@
       "back": "Back",
       "submit": "Create account",
       "haveAccount": "Already have an account?",
-      "signIn": "Sign in",
+      "login": "Sign in",
       "submitting": "Creating account..."
     }
   }
