@@ -18,10 +18,6 @@ import {
   Loader2,
   ChevronDown,
   Info,
-  Check,
-  CheckCheck,
-  Smile,
-  AlertCircle,
 } from "lucide-react";
 
 import MessageBubble from "./MessageBubble";
@@ -29,8 +25,6 @@ import MessageInput from "./MessageInput";
 import {
   markConversationAsRead,
   deleteConversation,
-  deleteMessageForEveryone,
-  deleteMessageForMe,
 } from "@/lib/dm/actions";
 import { supabase } from "@/lib/supabase/client";
 
@@ -38,60 +32,70 @@ export interface Recipient {
   id: string;
   name: string | null;
   username: string;
-  avatarUrl: string | null;
+  image?: string | null;
+  avatarUrl?: string | null;
   isOnline?: boolean;
-  lastSeen?: string | Date | null;
 }
 
 export interface MessageItem {
   id: string;
   senderId: string;
-  recipientId?: string;
   conversationId: string;
-  text: string;
+  content: string | null;
+  text?: string;
+  mediaUrls: string[];
   createdAt: string | Date;
-  updatedAt?: string | Date;
   readAt?: string | Date | null;
-  isDeleted?: boolean;
-  deletedFor?: string[];
-  status?: "sending" | "sent" | "delivered" | "read" | "failed";
+  isSeen?: boolean;
 }
 
 interface ChatWindowProps {
   conversationId: string;
   currentUserId: string;
   recipient: Recipient;
-  initialMessages: MessageItem[];
+  messages: any[];
+  locale?: string;
 }
 
 export default function ChatWindow({
   conversationId,
   currentUserId,
   recipient,
-  initialMessages,
+  messages: initialMessages,
+  locale = "fa",
 }: ChatWindowProps) {
   const router = useRouter();
 
-  // پیام‌ها و مدیریت استیت
-  const [messages, setMessages] = useState<MessageItem[]>(initialMessages);
+  const normalizeIncomingMessage = useCallback(
+    (raw: any): MessageItem => {
+      return {
+        id: raw.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        senderId: raw.senderId || "",
+        conversationId: raw.conversationId || conversationId,
+        content: raw.content ?? raw.text ?? null,
+        mediaUrls: Array.isArray(raw.mediaUrls) ? raw.mediaUrls : [],
+        createdAt: raw.createdAt || new Date().toISOString(),
+        readAt: raw.readAt ?? null,
+        isSeen: raw.isSeen ?? Boolean(raw.readAt),
+      };
+    },
+    [conversationId]
+  );
+
+  const [messages, setMessages] = useState<MessageItem[]>(() =>
+    (initialMessages || []).map(normalizeIncomingMessage)
+  );
+
   const [isRecipientTyping, setIsRecipientTyping] = useState(false);
   const [isRecipientOnline, setIsRecipientOnline] = useState(
     Boolean(recipient.isOnline)
   );
 
-  // مودال‌ها و منوها
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [selectedMessageForAction, setSelectedMessageForAction] =
-    useState<MessageItem | null>(null);
-  const [messageActionModalOpen, setMessageActionModalOpen] = useState(false);
-
-  // وضعیت‌های Transition
   const [isDeletingConversation, startDeleteConversationTransition] =
     useTransition();
-  const [isActionPending, startActionTransition] = useTransition();
 
-  // اسکرول و دیده‌شدن
   const [showScrollBottomButton, setShowScrollBottomButton] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -99,7 +103,8 @@ export default function ChatWindow({
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // بررسی موقعیت اسکرول برای دکمه بازگشت به پایین
+  const avatarSrc = recipient.image || recipient.avatarUrl || null;
+
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } =
@@ -108,7 +113,6 @@ export default function ChatWindow({
     setShowScrollBottomButton(isFarFromBottom);
   }, []);
 
-  // اسکرول به پایین
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
@@ -117,11 +121,9 @@ export default function ChatWindow({
     scrollToBottom("auto");
   }, [scrollToBottom]);
 
-  // علامت‌گذاری به عنوان خوانده‌شده
   const handleMarkAsRead = useCallback(async () => {
     try {
       await markConversationAsRead(conversationId);
-      // ارسال سیگنال Broadcast برای طرف مقابل
       channelRef.current?.send({
         type: "broadcast",
         event: "read_notice",
@@ -136,44 +138,34 @@ export default function ChatWindow({
     handleMarkAsRead();
   }, [handleMarkAsRead]);
 
-  // جلوگیری از ایجاد پیام‌های تکراری و ادغام بهینه استیت
-  const appendOrUpdateMessage = useCallback((newMessage: MessageItem) => {
-    setMessages((prev) => {
-      const index = prev.findIndex(
-        (m) =>
-          m.id === newMessage.id ||
-          (m.text === newMessage.text &&
-            m.senderId === newMessage.senderId &&
-            Math.abs(
-              new Date(m.createdAt).getTime() -
-                new Date(newMessage.createdAt).getTime()
-            ) < 3000)
-      );
+  const appendOrUpdateMessage = useCallback(
+    (incoming: any) => {
+      const normalized = normalizeIncomingMessage(incoming);
 
-      if (index !== -1) {
-        const updated = [...prev];
-        updated[index] = { ...updated[index], ...newMessage };
-        return updated;
-      }
-      return [...prev, newMessage];
-    });
-    setTimeout(() => scrollToBottom("smooth"), 60);
-  }, [scrollToBottom]);
-
-  // حذف پیام در استیت کلاینت
-  const handleLocalMessageDelete = useCallback(
-    (messageId: string, forEveryone: boolean) => {
       setMessages((prev) => {
-        if (forEveryone) {
-          return prev.filter((m) => m.id !== messageId);
+        const index = prev.findIndex(
+          (m) =>
+            m.id === normalized.id ||
+            (m.content === normalized.content &&
+              m.senderId === normalized.senderId &&
+              Math.abs(
+                new Date(m.createdAt).getTime() -
+                  new Date(normalized.createdAt).getTime()
+              ) < 3000)
+        );
+
+        if (index !== -1) {
+          const updated = [...prev];
+          updated[index] = { ...updated[index], ...normalized };
+          return updated;
         }
-        return prev.filter((m) => m.id !== messageId);
+        return [...prev, normalized];
       });
+      setTimeout(() => scrollToBottom("smooth"), 60);
     },
-    []
+    [normalizeIncomingMessage, scrollToBottom]
   );
 
-  // اتصال بی‌درنگ به کانال سوپابیس (پشتیبانی از هر دو حالت Broadcast و Postgres Changes)
   useEffect(() => {
     const channelName = `dm:${conversationId}`;
     const channel = supabase.channel(channelName, {
@@ -185,9 +177,8 @@ export default function ChatWindow({
 
     channelRef.current = channel;
 
-    // ۱. دریافت سریع پیام ارسالی طرف مقابل از طریق Broadcast
     channel.on("broadcast", { event: "new_message" }, (payload) => {
-      const msg = payload.payload as MessageItem;
+      const msg = payload.payload;
       if (msg && msg.conversationId === conversationId) {
         appendOrUpdateMessage(msg);
         if (msg.senderId !== currentUserId) {
@@ -196,20 +187,18 @@ export default function ChatWindow({
       }
     });
 
-    // ۲. رویداد سینک خوانده شدن پیام‌ها
     channel.on("broadcast", { event: "read_notice" }, (payload) => {
       if (payload.payload?.conversationId === conversationId) {
         setMessages((prev) =>
           prev.map((msg) =>
             msg.senderId === currentUserId
-              ? { ...msg, readAt: new Date().toISOString(), status: "read" }
+              ? { ...msg, readAt: new Date().toISOString(), isSeen: true }
               : msg
           )
         );
       }
     });
 
-    // ۳. تایپینگ استاتوس (Typing Indicator)
     channel.on("broadcast", { event: "typing_status" }, (payload) => {
       if (payload.payload?.userId === recipient.id) {
         setIsRecipientTyping(Boolean(payload.payload.isTyping));
@@ -226,15 +215,6 @@ export default function ChatWindow({
       }
     });
 
-    // ۴. رویداد حذف پیام از طریق Broadcast
-    channel.on("broadcast", { event: "delete_message" }, (payload) => {
-      const { messageId, forEveryone } = payload.payload || {};
-      if (messageId && forEveryone) {
-        handleLocalMessageDelete(messageId, true);
-      }
-    });
-
-    // ۵. حضور آنلاین/آفلاین کاربر (Presence)
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
@@ -248,7 +228,6 @@ export default function ChatWindow({
         if (key === recipient.id) setIsRecipientOnline(false);
       });
 
-    // ۶. لیسنر مستقیم دیتابیس Postgres Changes
     channel
       .on(
         "postgres_changes",
@@ -259,7 +238,7 @@ export default function ChatWindow({
           filter: `conversationId=eq.${conversationId}`,
         },
         (payload) => {
-          const newMsg = payload.new as MessageItem;
+          const newMsg = payload.new;
           if (newMsg) {
             appendOrUpdateMessage(newMsg);
             if (newMsg.senderId !== currentUserId) {
@@ -277,7 +256,7 @@ export default function ChatWindow({
           filter: `conversationId=eq.${conversationId}`,
         },
         (payload) => {
-          const updatedMsg = payload.new as MessageItem;
+          const updatedMsg = payload.new;
           if (updatedMsg) {
             appendOrUpdateMessage(updatedMsg);
           }
@@ -293,7 +272,7 @@ export default function ChatWindow({
         (payload) => {
           const deletedId = (payload.old as { id?: string })?.id;
           if (deletedId) {
-            handleLocalMessageDelete(deletedId, true);
+            setMessages((prev) => prev.filter((m) => m.id !== deletedId));
           }
         }
       );
@@ -316,45 +295,13 @@ export default function ChatWindow({
     recipient.id,
     appendOrUpdateMessage,
     handleMarkAsRead,
-    handleLocalMessageDelete,
   ]);
 
-  // ارسال استاتوس تایپینگ با Debounce به کلاینت مقابل
-  const handleTypingEvent = useCallback(
-    (isTyping: boolean) => {
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "typing_status",
-        payload: { userId: currentUserId, isTyping },
-      });
-    },
-    [currentUserId]
-  );
-
-  // کال‌بک ارسال پیام از اینپوت
-  const handleMessageSent = useCallback(
-    (sentMessage: MessageItem) => {
-      appendOrUpdateMessage(sentMessage);
-
-      // برودکست بلافاصله برای طرف مقابل
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "new_message",
-        payload: sentMessage,
-      });
-
-      // خاموش کردن تایپینگ خودمان در صفحه طرف مقابل
-      handleTypingEvent(false);
-    },
-    [appendOrUpdateMessage, handleTypingEvent]
-  );
-
-  // حذف مکالمه
   const handleDeleteConversation = () => {
     startDeleteConversationTransition(async () => {
       try {
         await deleteConversation(conversationId);
-        router.push("/messages");
+        router.push(`/${locale}/messages`);
         router.refresh();
       } catch (err) {
         console.error("Failed to delete conversation:", err);
@@ -362,34 +309,6 @@ export default function ChatWindow({
     });
   };
 
-  // عملیات حذف تک پیام
-  const handleDeleteMessageAction = (forEveryone: boolean) => {
-    if (!selectedMessageForAction) return;
-    const msgId = selectedMessageForAction.id;
-
-    startActionTransition(async () => {
-      try {
-        if (forEveryone) {
-          await deleteMessageForEveryone(msgId);
-          // ارسال سیگنال حذف به طرف مقابل
-          channelRef.current?.send({
-            type: "broadcast",
-            event: "delete_message",
-            payload: { messageId: msgId, forEveryone: true },
-          });
-        } else {
-          await deleteMessageForMe(msgId);
-        }
-        handleLocalMessageDelete(msgId, forEveryone);
-        setMessageActionModalOpen(false);
-        setSelectedMessageForAction(null);
-      } catch (err) {
-        console.error("Failed to delete message:", err);
-      }
-    });
-  };
-
-  // بستن منوی سه‌نقطه با کلیک بیرون
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -404,7 +323,6 @@ export default function ChatWindow({
     };
   }, [menuOpen]);
 
-  // دسته‌بندی پیام‌ها بر اساس روز برای نمایش برچسب تاریخ (Date Separator)
   const groupedMessages = useMemo(() => {
     const groups: { dateLabel: string; items: MessageItem[] }[] = [];
 
@@ -438,11 +356,11 @@ export default function ChatWindow({
 
   return (
     <div className="flex flex-col h-full bg-background relative overflow-hidden select-none md:select-auto">
-      {/* هدر چت */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur z-20 shadow-xs">
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur z-20">
         <div className="flex items-center gap-3">
           <Link
-            href="/messages"
+            href={`/${locale}/messages`}
             className="p-2 -ml-2 rounded-full hover:bg-muted transition text-muted-foreground hover:text-foreground md:hidden"
             aria-label="Back to messages"
           >
@@ -450,25 +368,24 @@ export default function ChatWindow({
           </Link>
 
           <Link
-            href={`/${recipient.username}`}
+            href={`/${locale}/${recipient.username}`}
             className="flex items-center gap-3 group"
           >
             <div className="relative">
               <div className="relative w-10 h-10 rounded-full overflow-hidden bg-muted border border-border">
-                {recipient.avatarUrl ? (
+                {avatarSrc ? (
                   <Image
-                    src={recipient.avatarUrl}
+                    src={avatarSrc}
                     alt={recipient.name || recipient.username}
                     fill
                     className="object-cover"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center font-bold text-muted-foreground">
-                    {(recipient.name || recipient.username)[0].toUpperCase()}
+                    {(recipient.name || recipient.username)[0]?.toUpperCase() || "?"}
                   </div>
                 )}
               </div>
-              {/* نشانگر آنلاین بودن */}
               {isRecipientOnline && (
                 <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-background rounded-full" />
               )}
@@ -493,7 +410,6 @@ export default function ChatWindow({
           </Link>
         </div>
 
-        {/* منوی آپشن‌ها */}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((prev) => !prev)}
@@ -504,9 +420,9 @@ export default function ChatWindow({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-52 bg-popover text-popover-foreground border border-border rounded-2xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute right-0 mt-2 w-52 bg-popover text-popover-foreground border border-border rounded-2xl shadow-xl py-1.5 z-50">
               <Link
-                href={`/${recipient.username}`}
+                href={`/${locale}/${recipient.username}`}
                 onClick={() => setMenuOpen(false)}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm hover:bg-muted transition"
               >
@@ -529,7 +445,7 @@ export default function ChatWindow({
         </div>
       </header>
 
-      {/* بخش نمایش پیام‌ها */}
+      {/* Messages List */}
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
@@ -537,37 +453,29 @@ export default function ChatWindow({
       >
         {groupedMessages.map((group) => (
           <div key={group.dateLabel} className="space-y-3">
-            {/* برچسب تفکیک تاریخ */}
             <div className="flex justify-center my-2">
               <span className="text-[11px] font-medium text-muted-foreground bg-muted/60 px-3 py-1 rounded-full border border-border/40">
                 {group.dateLabel}
               </span>
             </div>
 
-            {/* حباب‌های پیام */}
             {group.items.map((msg) => (
-              <div
+              <MessageBubble
                 key={msg.id}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setSelectedMessageForAction(msg);
-                  setMessageActionModalOpen(true);
+                isMine={msg.senderId === currentUserId}
+                message={{
+                  id: msg.id,
+                  senderId: msg.senderId,
+                  content: msg.content,
+                  mediaUrls: msg.mediaUrls,
+                  createdAt: msg.createdAt,
+                  isSeen: msg.isSeen,
                 }}
-              >
-                <MessageBubble
-                  message={msg}
-                  isOwn={msg.senderId === currentUserId}
-                  onOpenActionMenu={() => {
-                    setSelectedMessageForAction(msg);
-                    setMessageActionModalOpen(true);
-                  }}
-                />
-              </div>
+              />
             ))}
           </div>
         ))}
 
-        {/* وضعیت در حال تایپ طرف مقابل */}
         {isRecipientTyping && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground italic px-2 py-1">
             <div className="flex space-x-1 items-center bg-muted/60 px-3 py-2 rounded-2xl border border-border/40">
@@ -581,31 +489,25 @@ export default function ChatWindow({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* دکمه اسکرول به پایین هنگام عقب ماندن */}
       {showScrollBottomButton && (
         <button
           onClick={() => scrollToBottom("smooth")}
-          className="absolute bottom-20 right-5 z-20 p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-bottom-2"
+          className="absolute bottom-20 right-5 z-20 p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all"
           aria-label="Scroll to bottom"
         >
           <ChevronDown className="w-5 h-5" />
         </button>
       )}
 
-      {/* فرم اینپوت پیام */}
+      {/* Message Input Area */}
       <div className="p-3 border-t border-border bg-background/95 backdrop-blur">
-        <MessageInput
-          conversationId={conversationId}
-          recipientId={recipient.id}
-          onMessageSent={handleMessageSent}
-          onTypingChange={handleTypingEvent}
-        />
+        <MessageInput conversationId={conversationId} />
       </div>
 
-      {/* مودال تایید حذف کامل مکالمه */}
+      {/* Delete Conversation Modal */}
       {deleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+          <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
             <h3 className="text-lg font-bold">Delete conversation?</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
               This will delete the entire conversation history from your inbox. This action cannot be undone.
@@ -629,53 +531,6 @@ export default function ChatWindow({
                   <Loader2 className="w-4 h-4 animate-spin" />
                 )}
                 <span>Delete</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* مودال عملیات روی یک پیام خاص (حذف برای من / حذف برای همه) */}
-      {messageActionModalOpen && selectedMessageForAction && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setMessageActionModalOpen(false)}
-        >
-          <div
-            className="bg-card text-card-foreground border border-border rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-bold">Message options</h3>
-            <div className="space-y-2">
-              <button
-                disabled={isActionPending}
-                onClick={() => handleDeleteMessageAction(false)}
-                className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-muted text-sm font-medium transition flex items-center justify-between"
-              >
-                <span>Delete for me</span>
-                <Trash2 className="w-4 h-4 text-muted-foreground" />
-              </button>
-
-              {/* فقط فرستنده می‌تواند برای همه حذف کند */}
-              {selectedMessageForAction.senderId === currentUserId && (
-                <button
-                  disabled={isActionPending}
-                  onClick={() => handleDeleteMessageAction(true)}
-                  className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-destructive/10 text-destructive text-sm font-medium transition flex items-center justify-between"
-                >
-                  <span>Delete for everyone</span>
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </button>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setMessageActionModalOpen(false)}
-                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground font-medium"
-              >
-                Close
               </button>
             </div>
           </div>

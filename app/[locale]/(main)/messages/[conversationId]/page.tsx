@@ -18,19 +18,18 @@ export default async function ConversationPage({ params }: PageProps) {
     getConversationDetails(conversationId),
   ]);
 
-  if (!currentUser || !data) {
+  // اگر کاربر لاگین نبود، گفتگو پیدا نشد یا طرف مقابل وجود نداشت
+  if (!currentUser || !data || !data.otherUser) {
     notFound();
   }
 
-  // ساخت recipient سازگار با ChatWindow
-  const recipient = data.otherUser
-    ? {
-        id: data.otherUser.id,
-        name: data.otherUser.fullName,
-        username: data.otherUser.username,
-        image: data.otherUser.avatarUrl,
-      }
-    : null;
+  // شیء گیرنده ۱۰۰٪ غیر نال و هماهنگ با تایپ
+  const recipient = {
+    id: data.otherUser.id,
+    name: data.otherUser.fullName,
+    username: data.otherUser.username,
+    image: data.otherUser.avatarUrl,
+  };
 
   return (
     <ChatWindow
