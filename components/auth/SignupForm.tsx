@@ -335,7 +335,7 @@ router.push(data.redirectTo);
         <p className="mt-6 text-center text-sm text-white/50">
           {t("haveAccount")}{" "}
           <Link
-            href="/login"
+            href={`/${locale}/login`}
             className="text-violet-400 hover:text-violet-300 transition"
           >
             {t("login")}
