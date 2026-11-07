@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
-import { PostWithRelations } from "@/lib/types/post";
 
 interface Props {
   params: Promise<{ locale: string; username: string }>;
@@ -18,7 +18,6 @@ const authorSelect = {
   badge: true,
 } as const;
 
-// جایگزین const postInclude = { ... } با این:
 const getPostInclude = (userId?: string) => {
   const userFilter = userId
     ? { where: { userId }, select: { userId: true } }
@@ -53,10 +52,17 @@ const getPostInclude = (userId?: string) => {
     likes: userFilter,
     bookmarks: userFilter,
     reposts: userFilter,
-  } as const;
+  };
 };
 
+type PostPayload = Prisma.PostGetPayload<{
+  include: ReturnType<typeof getPostInclude>;
+}>;
 
+type FeedItem = PostPayload & {
+  repostedByName?: string;
+  timelineDate: Date;
+};
 
 export default async function ProfilePage({ params, searchParams }: Props) {
   const { username, locale } = await params;
@@ -96,6 +102,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   if (!profileUser) notFound();
 
   const isOwner = currentUser?.id === profileUser.id;
+  const displayName = isOwner ? "You" : profileUser.fullName || profileUser.username;
 
   const follow = !isOwner && currentUser
     ? await prisma.follow.findUnique({
@@ -111,47 +118,65 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       })
     : null;
 
-  // فقط Follow تأییدشده
   const isFollowing = follow?.status === "ACCEPTED";
 
-  // برای نمایش حالت «درخواست ارسال شده» در حساب private
-  const isFollowPending = follow?.status === "PENDING";
+  let posts: FeedItem[] = [];
 
-  
+  if (tab === "posts") {
+    const [userPosts, userReposts] = await Promise.all([
+      prisma.post.findMany({
+        where: { authorId: profileUser.id, deletedAt: null, replyToId: null },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: getPostInclude(currentUser?.id),
+      }),
+      prisma.repost.findMany({
+        where: { userId: profileUser.id, post: { deletedAt: null } },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: { post: { include: getPostInclude(currentUser?.id) } },
+      }),
+    ]);
 
- let posts: PostWithRelations[] = [];
+    const allItems: FeedItem[] = [
+      ...userPosts.map((p) => ({ ...p, timelineDate: p.createdAt })),
+      ...userReposts.map((r) => ({
+        ...(r.post as PostPayload),
+        repostedByName: displayName,
+        timelineDate: r.createdAt,
+      })),
+    ].sort((a, b) => b.timelineDate.getTime() - a.timelineDate.getTime());
 
-if (tab === "posts") {
-  posts = (await prisma.post.findMany({
-    where: { authorId: profileUser.id, deletedAt: null, replyToId: null },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: getPostInclude(currentUser?.id),
-  })) as PostWithRelations[];
-} else if (tab === "replies") {
-  posts = (await prisma.post.findMany({
-    where: { authorId: profileUser.id, deletedAt: null, replyToId: { not: null } },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: getPostInclude(currentUser?.id),
-  })) as PostWithRelations[];
-} else if (tab === "likes") {
-  posts = (await prisma.post.findMany({
-    where: { deletedAt: null, likes: { some: { userId: profileUser.id } } },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: getPostInclude(currentUser?.id),
-  })) as PostWithRelations[];
-} else if (tab === "reposts") {
-  posts = (await prisma.post.findMany({
-    where: { deletedAt: null, reposts: { some: { userId: profileUser.id } } },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: getPostInclude(currentUser?.id),
-  })) as PostWithRelations[];
-}
-
-
+    posts = allItems.slice(0, 20);
+  } else if (tab === "replies") {
+    const data = await prisma.post.findMany({
+      where: { authorId: profileUser.id, deletedAt: null, replyToId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: getPostInclude(currentUser?.id),
+    });
+    posts = data.map((p) => ({ ...p, timelineDate: p.createdAt }));
+  } else if (tab === "likes") {
+    const data = await prisma.post.findMany({
+      where: { deletedAt: null, likes: { some: { userId: profileUser.id } } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: getPostInclude(currentUser?.id),
+    });
+    posts = data.map((p) => ({ ...p, timelineDate: p.createdAt }));
+  } else if (tab === "reposts") {
+    const data = await prisma.repost.findMany({
+      where: { userId: profileUser.id, post: { deletedAt: null } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: { post: { include: getPostInclude(currentUser?.id) } },
+    });
+    posts = data.map((r) => ({
+      ...(r.post as PostPayload),
+      repostedByName: displayName,
+      timelineDate: r.createdAt,
+    }));
+  }
 
   return (
     <>
@@ -168,7 +193,7 @@ if (tab === "posts") {
         username={username}
         locale={locale}
         activeTab={tab}
-        posts={posts}
+        posts={posts as any}
         currentUserId={currentUser?.id}
       />
     </>

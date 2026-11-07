@@ -12,7 +12,7 @@ interface Props {
   username: string;
   locale: string;
   activeTab: string;
-  posts: PostWithRelations[];
+  posts: (PostWithRelations & { repostedByName?: string })[];
   currentUserId?: string;
 }
 
@@ -41,7 +41,13 @@ export default function ProfileTabs({ username, locale, activeTab, posts, curren
         <p className="text-center text-muted-foreground text-sm py-12">Nothing here yet.</p>
       ) : (
         posts.map((post) => (
-          <PostCard key={post.id} post={post} currentUserId={currentUserId} locale={locale} />
+          <PostCard
+            key={`${post.id}-${post.repostedByName || "direct"}`}
+            post={post}
+            repostedByName={post.repostedByName}
+            currentUserId={currentUserId}
+            locale={locale}
+          />
         ))
       )}
     </div>

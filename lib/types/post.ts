@@ -1,10 +1,16 @@
+// lib/types/post.ts
 import type { Post, User } from "@prisma/client";
 
 export type PostType = "POST" | "REPLY" | "QUOTE";
 
 export type PostWithRelations = Post & {
   author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
-  _count: { likes: number; replies: number; reposts: number };
+  _count: {
+    likes: number;
+    replies: number;
+    reposts: number;
+    quotes?: number;
+  };
   likes: { userId: string }[];
   reposts: { userId: string }[];
   bookmarks?: { userId: string }[];
@@ -17,6 +23,10 @@ export type PostWithRelations = Post & {
   }) | null;
   quotedPost?: (Post & {
     author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
-    _count: { likes: number; replies: number; reposts: number };
+    _count: { likes: number; replies: number; reposts: number; quotes?: number };
+  }) | null;
+  quoteOf?: (Post & {
+    author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+    _count?: { likes: number; replies: number; reposts: number; quotes?: number };
   }) | null;
 };

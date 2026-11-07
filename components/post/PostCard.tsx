@@ -1,3 +1,4 @@
+// components/posts/PostCard.tsx
 "use client";
 
 import Image from "next/image";
@@ -10,6 +11,7 @@ import { useTranslations } from "next-intl";
 import { PostWithRelations } from "@/lib/types/post";
 import PostActions from "./PostActions";
 import PostDropdown from "./PostDropdown";
+import QuotedPostCard, { QuotedBadge } from "./QuotedPostCard";
 
 interface PostCardProps {
   post: PostWithRelations;
@@ -17,7 +19,6 @@ interface PostCardProps {
   locale: string;
   redirectAfterDelete?: boolean;
   fallbackHref?: string;
-  /** اگه این پست توسط کسی repost شده، اسمش رو نشون بده */
   repostedByName?: string;
 }
 
@@ -32,7 +33,9 @@ export default function PostCard({
   const router = useRouter();
   const t = useTranslations("PostDropdown");
 
-  const isQuote = Boolean(post.quoteOfId && post.quotedPost);
+  // با مدل Prisma ممکن است نام فیلد quoteOf یا quotedPost باشد
+  const quotedTarget = (post as any).quoteOf ?? (post as any).quotedPost;
+  const hasQuote = Boolean(post.quoteOfId);
   const displayAuthor = post.author;
 
   const isPinned = Boolean(
@@ -94,6 +97,7 @@ export default function PostCard({
               >
                 {displayAuthor.fullName}
               </Link>
+              <QuotedBadge badge={displayAuthor.badge} />
               <span className="text-xs text-muted-foreground">@{displayAuthor.username}</span>
               <span className="text-xs text-muted-foreground">·</span>
               <span className="text-xs text-muted-foreground hover:underline">
@@ -105,7 +109,6 @@ export default function PostCard({
                 postId={post.id}
                 authorId={displayAuthor.id}
                 currentUserId={currentUserId}
-              
                 isPinned={isPinned}
                 redirectAfterDelete={redirectAfterDelete}
                 fallbackHref={fallbackHref}
@@ -113,12 +116,14 @@ export default function PostCard({
             </div>
           </div>
 
+          {/* محتوای متن اصلی پست */}
           {post.content && (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
               {post.content}
             </p>
           )}
 
+          {/* مدیای پیوست پست اصلی */}
           {post.mediaUrls?.length > 0 && (
             <div className="mt-2 max-h-[350px] overflow-hidden rounded-xl border border-border">
               <Image
@@ -131,19 +136,13 @@ export default function PostCard({
             </div>
           )}
 
-          {isQuote && post.quotedPost && (
-            <div
-              onClick={(e) => { e.stopPropagation(); router.push(`/${locale}/status/${post.quotedPost!.id}`); }}
-              className="mt-2 cursor-pointer rounded-xl border border-border p-3 hover:bg-accent/30"
-            >
-              <div className="flex items-center gap-1.5 text-xs font-bold">
-                <span>{post.quotedPost.author.fullName}</span>
-                <span className="font-normal text-muted-foreground">@{post.quotedPost.author.username}</span>
-              </div>
-              {post.quotedPost.content && (
-                <p className="mt-1 text-sm text-foreground line-clamp-3">{post.quotedPost.content}</p>
-              )}
-            </div>
+          {/* نمایش کارت کوت بر اساس مدل prisma */}
+          {hasQuote && (
+            <QuotedPostCard
+              quotedPost={quotedTarget}
+              quoteOfId={post.quoteOfId}
+              locale={locale}
+            />
           )}
 
           <div className="mt-2" onClick={(e) => e.stopPropagation()}>

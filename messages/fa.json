@@ -53,16 +53,16 @@
     "logoutUser": "خروج از @{username}"
   },
 
-  "Composer": {
-    "postPlaceholder": "چه خبر؟",
-    "replyPlaceholder": "پاسخ خود را بنویسید...",
-    "uploadImage": "افزودن تصویر",
-    "uploadFailed": "آپلود تصویر با خطا مواجه شد",
-    "postFailed": "ارسال پست با خطا مواجه شد",
-    "genericError": "خطایی رخ داده است",
-    "loading": "در حال ارسال...",
-    "postButton": "ارسال پست",
-    "replyButton": "پاسخ"
+   "Composer": {
+    "placeholder": "چه خبر؟",
+    "quotePlaceholder": "یک نظر اضافه کنید...",
+    "replyPlaceholder": "پاسخ خود را بنویسید",
+    "submit": "ارسال",
+    "quote": "نقل‌قول",
+    "quoteSubmit": "نقل‌قول",
+    "reply": "پاسخ",
+    "submitting": "در حال ارسال...",
+    "submitError": "خطا در ارسال پست. لطفا دوباره تلاش کنید."
   },
 
   "compose": {

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import PostCard from "@/components/post/PostCard";
@@ -15,7 +16,7 @@ export default async function PostDetailPage({ params }: PageProps) {
   const { postId, locale } = await params;
   const currentUser = await getCurrentUser();
 
-  // گرفتن جزئیات پست اصلی
+  // گرفتن جزئیات پست اصلی همراه با شمارش کوت‌ها در _count
   const post = await prisma.post.findUnique({
     where: { id: postId },
     include: {
@@ -31,9 +32,9 @@ export default async function PostDetailPage({ params }: PageProps) {
       likes: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
-        bookmarks: currentUser
-      ? { where: { userId: currentUser.id }, select: { userId: true } }
-      : false,
+      bookmarks: currentUser
+        ? { where: { userId: currentUser.id }, select: { userId: true } }
+        : false,
       reposts: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
@@ -69,6 +70,7 @@ export default async function PostDetailPage({ params }: PageProps) {
           likes: true,
           replies: true,
           reposts: true,
+          quotes: true, // اضافه شد
         },
       },
     },
@@ -78,7 +80,7 @@ export default async function PostDetailPage({ params }: PageProps) {
     notFound();
   }
 
-   // گرفتن ریپلای‌های مربوط به این پست
+  // گرفتن ریپلای‌های مربوط به این پست
   const replies = await prisma.post.findMany({
     where: {
       replyToId: postId,
@@ -96,10 +98,9 @@ export default async function PostDetailPage({ params }: PageProps) {
       likes: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
-        bookmarks: currentUser
-  ? { where: { userId: currentUser.id }, select: { userId: true } }
-  : false,
-
+      bookmarks: currentUser
+        ? { where: { userId: currentUser.id }, select: { userId: true } }
+        : false,
       reposts: currentUser
         ? { where: { userId: currentUser.id }, select: { userId: true } }
         : false,
@@ -122,6 +123,7 @@ export default async function PostDetailPage({ params }: PageProps) {
           likes: true,
           replies: true,
           reposts: true,
+          quotes: true,
         },
       },
     },
@@ -129,6 +131,13 @@ export default async function PostDetailPage({ params }: PageProps) {
       createdAt: "desc",
     },
   });
+
+  // محاسبه آمارهای تفکیکی برای خط کلاسیک توییتر
+  const repostsCount = post.repostCount || post._count.reposts;
+  const quotesCount = post.quoteCount || post._count.quotes;
+  const likesCount = post.likeCount || post._count.likes;
+  const bookmarksCount = post.bookmarkCount || 0;
+  const hasMetrics = repostsCount > 0 || quotesCount > 0 || likesCount > 0 || bookmarksCount > 0;
 
   return (
     <div className="flex flex-col min-h-screen border-r border-border max-w-2xl w-full">
@@ -138,24 +147,68 @@ export default async function PostDetailPage({ params }: PageProps) {
       </div>
 
       {/* نمایش خود پست اصلی */}
-      <PostCard post={post as any} currentUserId={currentUser?.id} locale={locale} redirectAfterDelete fallbackHref={`/${locale}`} />
+      <PostCard
+        post={post as any}
+        currentUserId={currentUser?.id}
+        locale={locale}
+        redirectAfterDelete
+        fallbackHref={`/${locale}`}
+      />
+
+      {/* ردیف آمار کلاسیک توییتر (فقط در صورتی که حداقل یک آمار > 0 باشد) */}
+      {hasMetrics && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border px-4 py-3 text-sm text-muted-foreground">
+         {repostsCount > 0 && (
+            <Link
+              href={`/${locale}/status/${post.id}/reposts`}
+              className="hover:underline transition-colors cursor-pointer"
+            >
+              <span className="font-bold text-foreground tabular-nums">{repostsCount}</span>{" "}
+              <span>Reposts</span>
+            </Link>
+          )}
+
+          {quotesCount > 0 && (
+            <Link
+              href={`/${locale}/status/${post.id}/quotes`}
+              className="hover:underline transition-colors cursor-pointer"
+            >
+              <span className="font-bold text-foreground tabular-nums">{quotesCount}</span>{" "}
+              <span>Quotes</span>
+            </Link>
+          )}
+
+          {likesCount > 0 && (
+            <div>
+              <span className="font-bold text-foreground tabular-nums">{likesCount}</span>{" "}
+              <span>Likes</span>
+            </div>
+          )}
+
+          {bookmarksCount > 0 && (
+            <div>
+              <span className="font-bold text-foreground tabular-nums">{bookmarksCount}</span>{" "}
+              <span>Bookmarks</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* بخش ارسال پاسخ (Reply Composer) */}
-     {currentUser && (
-  <div className="border-b border-border p-3">
-    <Composer
-      currentUser={{
-        id: currentUser.id,
-        username: currentUser.username,
-        name: currentUser.fullName ?? null,
-        avatarUrl: currentUser.avatarUrl ?? null,
-      }}
-      replyToId={post.id}
-      placeholder="Post your reply"
-    />
-  </div>
-)}
-
+      {currentUser && (
+        <div className="border-b border-border p-3">
+          <Composer
+            currentUser={{
+              id: currentUser.id,
+              username: currentUser.username,
+              name: currentUser.fullName ?? null,
+              avatarUrl: currentUser.avatarUrl ?? null,
+            }}
+            replyToId={post.id}
+            placeholder="Post your reply"
+          />
+        </div>
+      )}
 
       {/* لیست ریپلای‌ها */}
       <div className="divide-y divide-border">

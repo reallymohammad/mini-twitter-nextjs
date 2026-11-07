@@ -1,12 +1,13 @@
 // lib/prisma/postInclude.ts
 import { Prisma } from "@prisma/client";
 
-const authorSelect = {
+export const authorSelect = {
   id: true,
   username: true,
   fullName: true,
   avatarUrl: true,
   badge: true,
+  isPrivate: true,
 } as const;
 
 export function getPostInclude(userId?: string) {
@@ -76,3 +77,5 @@ export function getPostInclude(userId?: string) {
     },
   } satisfies Prisma.PostInclude;
 }
+
+export default getPostInclude;

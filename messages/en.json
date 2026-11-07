@@ -61,8 +61,16 @@
       "unexpected": "Unexpected error"
     }
   },
-  "Composer": {
-    "reply": "Reply"
+ "Composer": {
+    "placeholder": "What is happening?!",
+    "quotePlaceholder": "Add a comment...",
+    "replyPlaceholder": "Post your reply",
+    "submit": "Post",
+    "quote": "Quote",
+    "quoteSubmit": "Quote",
+    "reply": "Reply",
+    "submitting": "Posting...",
+    "submitError": "Failed to create post. Please try again."
   },
   "auth": {
     "signin": {
