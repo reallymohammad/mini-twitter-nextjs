@@ -135,7 +135,7 @@ export default async function PostDetailPage({ params }: PageProps) {
   // محاسبه آمارهای تفکیکی برای خط کلاسیک توییتر
   const repostsCount = post.repostCount || post._count.reposts;
   const quotesCount = post.quoteCount || post._count.quotes;
-  const likesCount = post.likeCount || post._count.likes;
+const likesCount = post._count.likes;
   const bookmarksCount = post.bookmarkCount || 0;
   const hasMetrics = repostsCount > 0 || quotesCount > 0 || likesCount > 0 || bookmarksCount > 0;
 
@@ -178,12 +178,18 @@ export default async function PostDetailPage({ params }: PageProps) {
             </Link>
           )}
 
-          {likesCount > 0 && (
-            <div>
-              <span className="font-bold text-foreground tabular-nums">{likesCount}</span>{" "}
-              <span>Likes</span>
-            </div>
-          )}
+         {likesCount > 0 && (
+  <Link
+    href={`/${locale}/status/${post.id}/likes`}
+    className="cursor-pointer transition-colors hover:underline"
+  >
+    <span className="font-bold tabular-nums text-foreground">
+      {likesCount}
+    </span>{" "}
+    <span>Likes</span>
+  </Link>
+)}
+
 
           {bookmarksCount > 0 && (
             <div>

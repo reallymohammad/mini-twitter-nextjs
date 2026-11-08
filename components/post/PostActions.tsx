@@ -23,7 +23,9 @@ export default function PostActions({ post, currentUserId, currentUser }: PostAc
   const router = useRouter();
 
   // خواندن مقادیر اولیه با اولویت فیلدهای denormalized و fallback به _count
-  const [likes, setLikes] = useState(post.likeCount ?? post._count?.likes ?? 0);
+  const [likes, setLikes] = useState(
+    post._count?.likes ?? post.likeCount ?? 0
+  );
   const [reposts, setReposts] = useState(post.repostCount ?? post._count?.reposts ?? 0);
   const [quotes, setQuotes] = useState(post.quoteCount ?? post._count?.quotes ?? 0);
 
@@ -44,6 +46,7 @@ export default function PostActions({ post, currentUserId, currentUser }: PostAc
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // بستن منوی ریتوییت هنگام کلیک بیرون
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -53,6 +56,41 @@ export default function PostActions({ post, currentUserId, currentUser }: PostAc
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // همگام‌سازی استیت‌های کلاینت با پراپ‌های جدید از سمت سرور
+  useEffect(() => {
+    setLikes(post._count?.likes ?? post.likeCount ?? 0);
+    setReposts(post.repostCount ?? post._count?.reposts ?? 0);
+    setQuotes(post.quoteCount ?? post._count?.quotes ?? 0);
+    setIsLiked(
+      post.isLiked ??
+        post.likes?.some((like) => like.userId === currentUserId) ??
+        false
+    );
+    setIsReposted(
+      post.isReposted ??
+        post.reposts?.some((r) => r.userId === currentUserId) ??
+        false
+    );
+    setIsBookmarked(
+      post.isBookmarked ??
+        post.bookmarks?.some((b) => b.userId === currentUserId) ??
+        false
+    );
+  }, [
+    post.id,
+    post._count?.likes,
+    post.likeCount,
+    post.isLiked,
+    post.likes,
+    post.repostCount,
+    post.quoteCount,
+    post._count?.reposts,
+    post._count?.quotes,
+    post.isReposted,
+    post.isBookmarked,
+    currentUserId,
+  ]);
 
   const handleLike = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -300,7 +338,7 @@ export default function PostActions({ post, currentUserId, currentUser }: PostAc
                 autoFocus
                 onSuccess={() => {
                   setShowQuoteModal(false);
-                  setQuotes((c) => c + 1); // آپدیت خوش‌بینانه بدون نیاز به رفرش طولانی
+                  setQuotes((c) => c + 1);
                   router.refresh();
                 }}
                 onRemoveQuote={() => setShowQuoteModal(false)}
