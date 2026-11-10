@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
@@ -5,6 +6,8 @@ import { getCurrentUser } from "@/lib/session";
 import { getPostInclude } from "@/lib/prisma/postInclude";
 
 export const runtime = "nodejs";
+
+class ReferencedPostNotFoundError extends Error {}
 
 const createPostSchema = z.object({
   content: z.string().max(280).nullish(),
@@ -32,6 +35,48 @@ function isAllowedCloudinaryImageUrl(
   }
 }
 
+// حتی اگر پست‌هایی قبلاً بدون پاک‌کردن محتوا soft-delete شده باشند،
+ // محتوای کوتِ حذف‌شده از این API برنگردد.
+function hideDeletedQuote<T extends object>(post: T): T {
+  const quote = "quoteOf" in post ? post.quoteOf : null;
+
+  if (
+    !quote ||
+    typeof quote !== "object" ||
+    !("deletedAt" in quote) ||
+    !quote.deletedAt
+  ) {
+    return post;
+  }
+
+  return {
+    ...post,
+    quoteOf: {
+      ...quote,
+      content: null,
+      mediaUrls: [],
+    },
+  } as T;
+}
+
+async function retrySerializable<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const retryable =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2034";
+
+      if (!retryable || attempt === 2) throw error;
+    }
+  }
+
+  throw new Error("Transaction retries exhausted");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
@@ -51,22 +96,33 @@ export async function GET(req: NextRequest) {
       : 10;
 
     const posts = await prisma.post.findMany({
-      where: { replyToId: null, deletedAt: null },
+      where: {
+        replyToId: null,
+        deletedAt: null,
+      },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      orderBy: { createdAt: "desc" },
+      orderBy: [
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
       include: getPostInclude(currentUser.id),
     });
 
     let nextCursor: string | undefined;
 
     if (posts.length > limit) {
-      nextCursor = posts.pop()!.id;
+      posts.pop(); // فقط رکورد اضافه برای تشخیص وجود صفحهٔ بعد
+      nextCursor = posts[posts.length - 1].id;
     }
 
-    return NextResponse.json({ posts, nextCursor });
+    return NextResponse.json({
+      posts: posts.map(hideDeletedQuote),
+      nextCursor,
+    });
   } catch (error) {
     console.error("Error fetching posts:", error);
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -90,7 +146,10 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { error: "Validation failed", details: result.error.issues },
+        {
+          error: "Validation failed",
+          details: result.error.issues,
+        },
         { status: 400 }
       );
     }
@@ -111,18 +170,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (
+      quoteOfId &&
+      quotedPostId &&
+      quoteOfId !== quotedPostId
+    ) {
+      return NextResponse.json(
+        { error: "Conflicting quoted post IDs" },
+        { status: 400 }
+      );
+    }
+
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
 
     if (mediaUrls.length > 0) {
       if (!cloudName) {
         console.error("CLOUDINARY_CLOUD_NAME is missing");
+
         return NextResponse.json(
           { error: "Image upload is not configured" },
           { status: 500 }
         );
       }
 
-      if (mediaUrls.some((url) => !isAllowedCloudinaryImageUrl(url, cloudName))) {
+      if (
+        mediaUrls.some(
+          (url) => !isAllowedCloudinaryImageUrl(url, cloudName)
+        )
+      ) {
         return NextResponse.json(
           { error: "Invalid media URL" },
           { status: 400 }
@@ -141,78 +216,100 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // بررسی وجود پست‌های reply و quote و حذف‌نشدن آن‌ها
-    const refIds = [targetReplyId, targetQuoteId].filter(
-      (id): id is string => Boolean(id)
-    );
+    const refIds = [
+      ...new Set(
+        [targetReplyId, targetQuoteId].filter(
+          (id): id is string => Boolean(id)
+        )
+      ),
+    ];
 
-    if (refIds.length > 0) {
-      const found = await prisma.post.findMany({
-        where: {
-          id: { in: refIds },
-          deletedAt: null,
+    const post = await retrySerializable(() =>
+      prisma.$transaction(
+        async (tx) => {
+          if (refIds.length > 0) {
+            const found = await tx.post.findMany({
+              where: {
+                id: { in: refIds },
+                deletedAt: null,
+              },
+              select: { id: true },
+            });
+
+            if (found.length !== refIds.length) {
+              throw new ReferencedPostNotFoundError();
+            }
+          }
+
+          const newPost = await tx.post.create({
+            data: {
+              content: trimmedContent || null,
+              mediaUrls,
+              authorId: currentUser.id,
+              replyToId: targetReplyId,
+              quoteOfId: targetQuoteId,
+            },
+            include: getPostInclude(currentUser.id),
+          });
+
+          if (targetReplyId) {
+            const updated = await tx.post.updateMany({
+              where: {
+                id: targetReplyId,
+                deletedAt: null,
+              },
+              data: {
+                replyCount: { increment: 1 },
+              },
+            });
+
+            if (updated.count === 0) {
+              throw new ReferencedPostNotFoundError();
+            }
+          }
+
+          if (targetQuoteId) {
+            const updated = await tx.post.updateMany({
+              where: {
+                id: targetQuoteId,
+                deletedAt: null,
+              },
+              data: {
+                quoteCount: { increment: 1 },
+              },
+            });
+
+            if (updated.count === 0) {
+              throw new ReferencedPostNotFoundError();
+            }
+          }
+
+          return newPost;
         },
-        select: { id: true },
-      });
-
-      const foundIds = new Set(found.map((post) => post.id));
-
-      if (refIds.some((id) => !foundIds.has(id))) {
-        return NextResponse.json(
-          { error: "Referenced post not found" },
-          { status: 404 }
-        );
-      }
-    }
-
-    const post = await prisma.$transaction(
-      async (tx) => {
-        const newPost = await tx.post.create({
-          data: {
-            content: trimmedContent || null,
-            mediaUrls,
-            authorId: currentUser.id,
-            replyToId: targetReplyId,
-            quoteOfId: targetQuoteId,
-          },
-          include: getPostInclude(currentUser.id),
-        });
-
-        const counterUpdates: Promise<unknown>[] = [];
-
-        if (targetReplyId) {
-          counterUpdates.push(
-            tx.post.update({
-              where: { id: targetReplyId },
-              data: { replyCount: { increment: 1 } },
-            })
-          );
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 15000,
         }
-
-        if (targetQuoteId) {
-          counterUpdates.push(
-            tx.post.update({
-              where: { id: targetQuoteId },
-              data: { quoteCount: { increment: 1 } },
-            })
-          );
-        }
-
-        if (counterUpdates.length > 0) {
-          await Promise.all(counterUpdates);
-        }
-
-        return newPost;
-      },
-      { maxWait: 5000, timeout: 15000 }
+      )
     );
 
     return NextResponse.json(post, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ReferencedPostNotFoundError) {
       return NextResponse.json(
-        { error: "Validation failed", details: error.issues },
-        { status: 400 }
+        { error: "Referenced post not found" },
+        { status: 404 }
+      );
+    }
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Concurrent request; please retry" },
+        { status: 409 }
       );
     }
 

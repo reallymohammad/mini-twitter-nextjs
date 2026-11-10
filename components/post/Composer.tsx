@@ -8,6 +8,7 @@ import Image from "next/image";
 import { Image as ImageIcon, Loader2, X, AlertCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PostWithRelations } from "@/lib/types/post";
+import DeletedPostPlaceholder from "./DeletedPostPlaceholder";
 
 const MAX_CONTENT_LENGTH = 280;
 const MAX_MEDIA_COUNT = 4;
@@ -49,7 +50,8 @@ export default function Composer({
   autoFocus,
   onSuccess,
 }: ComposerProps) {
-  const t = useTranslations("Composer");
+  const tComposer = useTranslations("Composer");
+  const tPost = useTranslations("Post");
   const router = useRouter();
 
   const [content, setContent] = useState("");
@@ -79,9 +81,17 @@ export default function Composer({
 
   function safeTranslate(key: string, fallback: string, values?: Record<string, any>) {
     try {
-      return t(key as any, values);
+      return tComposer(key as any, values);
     } catch {
       return fallback;
+    }
+  }
+
+  function getPostUnavailableMessage() {
+    try {
+      return tPost("postUnavailable");
+    } catch {
+      return "This post is unavailable or has been deleted.";
     }
   }
 
@@ -144,7 +154,6 @@ export default function Composer({
     try {
       return await Promise.all(
         mediaFiles.map(async (file) => {
-          // One fresh signature per file (served by our own backend)
           const signRes = await fetch("/api/upload/sign", { method: "POST" });
           if (!signRes.ok) {
             const err = await signRes.json().catch(() => null);
@@ -205,6 +214,12 @@ export default function Composer({
         return;
       }
 
+      // مدیریت خطای پست حذف‌شده یا پیدا نشده (برای ریپلای و کوت)
+      if (res.status === 404) {
+        setError(getPostUnavailableMessage());
+        return;
+      }
+
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(
@@ -236,6 +251,7 @@ export default function Composer({
   }
 
   const busy = isUploading || isSubmitting || isPending;
+  const isQuotedPostDeleted = Boolean(activeQuotedPost && activeQuotedPost.deletedAt);
 
   return (
     <div className="relative flex flex-col p-4">
@@ -316,49 +332,55 @@ export default function Composer({
                 <X size={14} />
               </button>
 
-              <div className="flex items-center gap-2">
-                {activeQuotedPost.author?.avatarUrl ? (
-                  <Image
-                    src={activeQuotedPost.author.avatarUrl}
-                    alt={activeQuotedPost.author.username}
-                    width={20}
-                    height={20}
-                    className="size-5 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
-                    {activeQuotedPost.author?.username?.[0]?.toUpperCase()}
+              {isQuotedPostDeleted ? (
+                <DeletedPostPlaceholder />
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    {activeQuotedPost.author?.avatarUrl ? (
+                      <Image
+                        src={activeQuotedPost.author.avatarUrl}
+                        alt={activeQuotedPost.author.username}
+                        width={20}
+                        height={20}
+                        className="size-5 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                        {activeQuotedPost.author?.username?.[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <span className="truncate text-xs font-bold text-foreground">
+                      {activeQuotedPost.author?.fullName || activeQuotedPost.author?.username}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      @{activeQuotedPost.author?.username}
+                    </span>
+                    <span className="text-xs text-muted-foreground">·</span>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {formatDistanceToNow(new Date(activeQuotedPost.createdAt), {
+                        addSuffix: true,
+                      })}
+                    </span>
                   </div>
-                )}
-                <span className="truncate text-xs font-bold text-foreground">
-                  {activeQuotedPost.author?.fullName || activeQuotedPost.author?.username}
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  @{activeQuotedPost.author?.username}
-                </span>
-                <span className="text-xs text-muted-foreground">·</span>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {formatDistanceToNow(new Date(activeQuotedPost.createdAt), {
-                    addSuffix: true,
-                  })}
-                </span>
-              </div>
 
-              {activeQuotedPost.content && (
-                <p className="mt-1.5 line-clamp-3 text-xs md:text-sm text-foreground/90">
-                  {activeQuotedPost.content}
-                </p>
-              )}
+                  {activeQuotedPost.content && (
+                    <p className="mt-1.5 line-clamp-3 text-xs md:text-sm text-foreground/90">
+                      {activeQuotedPost.content}
+                    </p>
+                  )}
 
-              {activeQuotedPost.mediaUrls?.length > 0 && (
-                <div className="relative mt-2 h-36 w-full overflow-hidden rounded-xl border border-border/50">
-                  <Image
-                    src={activeQuotedPost.mediaUrls[0]}
-                    alt="Quoted media"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
+                  {activeQuotedPost.mediaUrls?.length > 0 && (
+                    <div className="relative mt-2 h-36 w-full overflow-hidden rounded-xl border border-border/50">
+                      <Image
+                        src={activeQuotedPost.mediaUrls[0]}
+                        alt="Quoted media"
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

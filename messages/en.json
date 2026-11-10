@@ -126,5 +126,9 @@
       "login": "Sign in",
       "submitting": "Creating account..."
     }
-  }
+  },
+  "Post": {
+  "postUnavailable": "This post is unavailable or was deleted by the author."
+}
+
 }

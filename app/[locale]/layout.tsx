@@ -18,20 +18,25 @@ export default async function LocaleLayout({
 }) {
   const { locale } = await params;
 
-  if (!locales.includes(locale as Locale)) notFound();
+  if (!locales.includes(locale as Locale)) {
+    notFound();
+  }
 
   setRequestLocale(locale);
+
+  // دریافت پیام‌های ترجمه
   const messages = await getMessages();
   const dir = rtlLocales.includes(locale as Locale) ? "rtl" : "ltr";
 
   return (
     <html lang={locale} dir={dir}>
       <body className="antialiased font-sans">
-        <CurrentUserProvider>
-          <NextIntlClientProvider messages={messages}>
+        {/* حتماً locale به صورت مستقیم به پرووایدر پاس داده شود */}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <CurrentUserProvider>
             {children}
-          </NextIntlClientProvider>
-        </CurrentUserProvider>
+          </CurrentUserProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

@@ -1,4 +1,3 @@
-// components/posts/QuotedPostCard.tsx
 "use client";
 
 import Image from "next/image";
@@ -6,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { BadgeCheck, Lock, AlertCircle } from "lucide-react";
 import { Badge } from "@prisma/client";
+import { useTranslations } from "next-intl";
 
 interface QuotedAuthor {
   id: string;
@@ -45,19 +45,27 @@ export function QuotedBadge({ badge }: { badge?: Badge }) {
   return <BadgeCheck className={`size-3.5 inline-block shrink-0 ${colorMap[badge]}`} />;
 }
 
+// تابع کمکی برای تشخیص پسوند ویدیو
+function isVideo(url: string) {
+  return /\.(mp4|webm|mov|ogg)$/i.test(url);
+}
+
 export default function QuotedPostCard({
   quotedPost,
   quoteOfId,
   locale,
 }: QuotedPostCardProps) {
   const router = useRouter();
+  const t = useTranslations("Post");
 
-  // اگر quoteOfId ست شده ولی آبجکت پست نیست یا سافت دلیت شده:
+  // اگر پست اصلی پاک شده بود، یا اصلاً وجود نداشت، یا سافت‌دلیت شده بود
   if (!quotedPost || quotedPost.deletedAt) {
     return (
-      <div className="mt-2.5 flex items-center gap-2 rounded-2xl border border-border/80 bg-muted/40 p-3.5 text-xs text-muted-foreground">
-        <AlertCircle className="size-4 shrink-0 text-muted-foreground" />
-        <span>This post is unavailable or was deleted by the author.</span>
+      <div className="mt-2.5 flex items-center gap-2.5 rounded-2xl border border-border/70 bg-muted/30 p-3.5 text-xs text-muted-foreground select-none">
+        <AlertCircle className="size-4 shrink-0 text-muted-foreground/80" />
+        <span className="font-medium">
+          {t("postUnavailable")}
+        </span>
       </div>
     );
   }
@@ -70,7 +78,7 @@ export default function QuotedPostCard({
         e.stopPropagation();
         router.push(`/${locale}/status/${quotedPost.id}`);
       }}
-      className="group/quote mt-2.5 overflow-hidden rounded-2xl border border-border/80 bg-background/60 transition hover:border-border hover:bg-accent/20"
+      className="group/quote mt-2.5 overflow-hidden rounded-2xl border border-border/80 bg-background/50 transition hover:border-border hover:bg-accent/20 cursor-pointer"
     >
       <div className="p-3">
         {/* هدر توییت کوت‌شده: مشخصات نویسنده */}
@@ -120,23 +128,40 @@ export default function QuotedPostCard({
         )}
       </div>
 
-      {/* مدیای کوت‌شده (تک یا چند مدیا) */}
+      {/* مدیای کوت‌شده (تصویر یا ویدیو) */}
       {mediaUrls && mediaUrls.length > 0 && (
         <div className="border-t border-border/60">
           {mediaUrls.length === 1 ? (
-            <div className="relative aspect-video max-h-56 w-full overflow-hidden">
-              <Image
-                src={mediaUrls[0]}
-                alt="Quoted attachment"
-                fill
-                className="object-cover transition duration-200 group-hover/quote:scale-[1.01]"
-              />
+            <div className="relative aspect-video max-h-60 w-full overflow-hidden bg-black/5">
+              {isVideo(mediaUrls[0]) ? (
+                <video
+                  src={mediaUrls[0]}
+                  className="h-full w-full object-cover"
+                  controls={false}
+                  preload="metadata"
+                />
+              ) : (
+                <Image
+                  src={mediaUrls[0]}
+                  alt="Quoted attachment"
+                  fill
+                  className="object-cover transition duration-200 group-hover/quote:scale-[1.01]"
+                />
+              )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-0.5 max-h-52 overflow-hidden">
+            <div className="grid grid-cols-2 gap-0.5 max-h-52 overflow-hidden bg-black/5">
               {mediaUrls.slice(0, 4).map((url, i) => (
                 <div key={i} className="relative aspect-video w-full">
-                  <Image src={url} alt="" fill className="object-cover" />
+                  {isVideo(url) ? (
+                    <video
+                      src={url}
+                      className="h-full w-full object-cover"
+                      preload="metadata"
+                    />
+                  ) : (
+                    <Image src={url} alt="" fill className="object-cover" />
+                  )}
                 </div>
               ))}
             </div>
