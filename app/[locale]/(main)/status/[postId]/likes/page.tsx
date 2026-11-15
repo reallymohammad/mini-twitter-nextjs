@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ArrowLeft, User } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { getVisiblePostWhere } from "@/lib/prisma/postInclude";
 import FollowButton from "@/components/user/FollowButton";
 
 interface Props {
@@ -14,15 +15,43 @@ export default async function LikesPage({ params }: Props) {
   const { locale, postId } = await params;
   const currentUser = await getCurrentUser();
 
+  // اطمینان از اینکه پست برای بیننده قابل مشاهده است
   const post = await prisma.post.findFirst({
-    where: { id: postId, deletedAt: null },
+    where: {
+      id: postId,
+      ...getVisiblePostWhere(currentUser?.id),
+    },
     select: { id: true },
   });
 
   if (!post) notFound();
 
+  // فیلتر کاربران قابل مشاهده (عمومی یا خصوصیِ فالو شده)
+  const visibleLikerWhere = {
+    deletedAt: null,
+    OR: [
+      { isPrivate: false },
+      ...(currentUser
+        ? [
+            { id: currentUser.id },
+            {
+              followers: {
+                some: {
+                  followerId: currentUser.id,
+                  status: "ACCEPTED" as const,
+                },
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
   const likes = await prisma.like.findMany({
-    where: { postId },
+    where: {
+      postId,
+      user: { is: visibleLikerWhere },
+    },
     orderBy: { createdAt: "desc" },
     include: {
       user: {
@@ -37,17 +66,18 @@ export default async function LikesPage({ params }: Props) {
     },
   });
 
-  // استخراج لیست کاربرانی که کاربر جاری آن‌ها را فالو کرده است
-  let followingIds = new Set<string>();
-  if (currentUser) {
+  const followingIds = new Set<string>();
+  if (currentUser && likes.length > 0) {
     const follows = await prisma.follow.findMany({
       where: {
         followerId: currentUser.id,
-        followingId: { in: likes.map((l) => l.user.id) },
+        followingId: { in: likes.map(({ user }) => user.id) },
+        status: "ACCEPTED",
       },
       select: { followingId: true },
     });
-    followingIds = new Set(follows.map((f) => f.followingId));
+
+    for (const follow of follows) followingIds.add(follow.followingId);
   }
 
   return (
@@ -76,7 +106,7 @@ export default async function LikesPage({ params }: Props) {
             >
               <Link
                 href={`/${locale}/${user.username}`}
-                className="flex flex-1 items-start gap-3 min-w-0 pr-2"
+                className="flex min-w-0 flex-1 items-start gap-3 pr-2"
               >
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
                   {user.avatarUrl ? (

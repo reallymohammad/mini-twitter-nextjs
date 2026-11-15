@@ -5,12 +5,14 @@ import { profileSchema } from "@/lib/validators/profile";
 
 export async function PATCH(req: NextRequest) {
   const currentUser = await getCurrentUser();
+
   if (!currentUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json();
   const parsed = profileSchema.safeParse(body);
+
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0].message },
@@ -18,8 +20,16 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const { fullName, bio, location, website, birthDate, avatarUrl, coverImageUrl } =
-    parsed.data;
+  const {
+    fullName,
+    bio,
+    location,
+    website,
+    birthDate,
+    avatarUrl,
+    coverImageUrl,
+    isPrivate,
+  } = parsed.data;
 
   const updated = await prisma.user.update({
     where: { id: currentUser.id },
@@ -31,6 +41,9 @@ export async function PATCH(req: NextRequest) {
       birthDate: birthDate ? new Date(birthDate) : null,
       avatarUrl: avatarUrl || null,
       coverImageUrl: coverImageUrl || null,
+
+      // اگر فیلد در درخواست نبود، مقدار فعلی دیتابیس حفظ می‌شود.
+      ...(isPrivate !== undefined ? { isPrivate } : {}),
     },
     select: {
       id: true,
@@ -42,6 +55,7 @@ export async function PATCH(req: NextRequest) {
       birthDate: true,
       avatarUrl: true,
       coverImageUrl: true,
+      isPrivate: true,
     },
   });
 

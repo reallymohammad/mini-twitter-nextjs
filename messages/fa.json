@@ -136,7 +136,33 @@
   },
   "Post": {
   "postUnavailable": "این پست در دسترس نیست یا توسط نویسنده حذف شده است."
-}
+},
+"followList": {
+    "searchPlaceholder": "جست‌وجو در این لیست...",
+    "searchAria": "جست‌وجو در این لیست",
+    "clearSearch": "پاک کردن جست‌وجو",
+    "submit": "جست‌وجو",
+    "notFound": "کاربری در این لیست پیدا نشد.",
+    "emptyList": "این لیست هنوز خالی است.",
+    "requested": "درخواست‌شده",
+    "followsYou": "Follows you",
+        "cancelRequest": "لغو درخواست",
+            "unfollow": "لغو دنبال‌کردن"
+
+
+  },
+
+  "followButton": {
+    "follow": "دنبال کردن",
+    "following": "دنبال می‌کنید",
+    "requested": "درخواست‌شده",
+    "unfollow": "لغو دنبال کردن",
+    "cancelRequest": "لغو درخواست"
+  },
+  "profile": {
+    "privateNoticeTitle": "این حساب کاربری خصوصی است",
+    "privateNoticeDesc": "برای دیدن پست‌ها و فعالیت‌ها، باید درخواست دنبال کردن بفرستید و توسط صاحب حساب تأیید شوید."
+  }
 
 }
 

@@ -215,9 +215,32 @@ export default function Composer({
       }
 
       // مدیریت خطای پست حذف‌شده یا پیدا نشده (برای ریپلای و کوت)
+         // مدیریت خطای پست حذف‌شده یا پیدا نشده (برای ریپلای و کوت)
       if (res.status === 404) {
         setError(getPostUnavailableMessage());
         return;
+      }
+
+      // کوتِ پست حساب خصوصی
+      if (res.status === 403) {
+        const data = await res.json().catch(() => null);
+
+        if (data?.code === "PRIVATE_POST_QUOTE") {
+          setError(
+            safeTranslate(
+              "privatePostQuoteError",
+              "You can't quote this private post because you don't have access."
+            )
+          );
+          return;
+        }
+
+        // 403 غیرمنتظره: بدنه همین‌جا مصرف شده، پس دوباره res.json() نزن
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            safeTranslate("submitError", "Failed to send post. Please try again.")
+        );
       }
 
       if (!res.ok) {
@@ -228,6 +251,7 @@ export default function Composer({
             safeTranslate("submitError", "Failed to send post. Please try again.")
         );
       }
+
 
       const post = await res.json();
 

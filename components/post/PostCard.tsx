@@ -26,6 +26,7 @@ interface PostCardProps {
   connectBelow?: boolean;
   dashedAbove?: boolean;
   focused?: boolean;
+  onPostChanged?: () => void;
 }
 
 export default function PostCard({
@@ -41,15 +42,26 @@ export default function PostCard({
   connectBelow = false,
   dashedAbove = false,
   focused = false,
+  onPostChanged,
 }: PostCardProps) {
   const router = useRouter();
   const t = useTranslations("PostDropdown");
 
-  const quotedTarget = (post as any).quoteOf ?? (post as any).quotedPost;
+  // اگر relation از سمت سرور وجود داشته باشد، به fallback قدیمی برنمی‌گردیم؛
+  // سرور ممکن است عمداً برای حفظ حریم خصوصی quoteOf را null کرده باشد.
+  const quoteRelationLoaded = Object.prototype.hasOwnProperty.call(
+    post,
+    "quoteOf"
+  );
+
+  const quotedTarget = quoteRelationLoaded
+    ? (post as any).quoteOf
+    : (post as any).quotedPost;
+
   const hasQuote = Boolean(post.quoteOfId);
   const displayAuthor = post.author;
 
-  // نبودن relation در کوئری به معنی حذف شدن والد نیست.
+  // نبودن relation در کوئری به‌تنهایی به معنی حذف‌شدن پست والد نیست.
   const replyRelationLoaded = Object.prototype.hasOwnProperty.call(
     post,
     "replyTo"
@@ -59,10 +71,13 @@ export default function PostCard({
     post.replyToId &&
       replyRelationLoaded &&
       (!post.replyTo ||
-        ("deletedAt" in post.replyTo && post.replyTo.deletedAt !== null))
+        ("deletedAt" in post.replyTo &&
+          post.replyTo.deletedAt !== null))
   );
 
-  const replyToUser = parentUnavailable ? null : post.replyTo?.author;
+  const replyToUser = parentUnavailable
+    ? null
+    : post.replyTo?.author;
 
   const isPinnedForCurrentUser = Boolean(
     currentUserId &&
@@ -99,8 +114,9 @@ export default function PostCard({
         </div>
       )}
 
-      {!hideReplyContext && post.replyToId && (
-        parentUnavailable ? (
+      {!hideReplyContext &&
+        post.replyToId &&
+        (parentUnavailable ? (
           <div
             className="mb-2 ps-[52px]"
             onClick={(event) => event.stopPropagation()}
@@ -132,8 +148,7 @@ export default function PostCard({
               </Link>
             )}
           </div>
-        )
-      )}
+        ))}
 
       <div className="flex gap-3">
         <div className="relative w-10 shrink-0 self-stretch">
@@ -192,7 +207,9 @@ export default function PostCard({
               <span className="text-xs text-muted-foreground">
                 <bdi>@{displayAuthor.username}</bdi>
               </span>
+
               <span className="text-xs text-muted-foreground">·</span>
+
               <span className="text-xs text-muted-foreground">
                 {formatDistanceToNow(new Date(post.createdAt), {
                   addSuffix: true,
@@ -236,7 +253,6 @@ export default function PostCard({
           {hasQuote && (
             <QuotedPostCard
               quotedPost={quotedTarget}
-              quoteOfId={post.quoteOfId}
               locale={locale}
             />
           )}
@@ -245,7 +261,11 @@ export default function PostCard({
             className="mt-2"
             onClick={(event) => event.stopPropagation()}
           >
-            <PostActions post={post} currentUserId={currentUserId} />
+            <PostActions
+              post={post}
+              currentUserId={currentUserId}
+              onPostChanged={onPostChanged}
+            />
           </div>
         </div>
       </div>

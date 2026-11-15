@@ -129,6 +129,30 @@
   },
   "Post": {
   "postUnavailable": "This post is unavailable or was deleted by the author."
-}
+},
+ "followList": {
+    "searchPlaceholder": "Search this list...",
+    "searchAria": "Search this list",
+    "clearSearch": "Clear search",
+    "submit": "Search",
+    "notFound": "No users found in this list.",
+    "emptyList": "This list is empty yet.",
+    "followsYou": "Follows you",
+     "requested": "Requested",
+     "unfollow": "Unfollow",
+      "cancelRequest": "Cancel request"
+  },
+    "followButton": {
+    "follow": "Follow",
+    "following": "Following",
+    "requested": "Requested",
+    "unfollow": "Unfollow",
+    "cancelRequest": "Cancel request"
+  },
+
+  "profile": {
+    "privateNoticeTitle": "These posts are protected",
+    "privateNoticeDesc": "Only confirmed followers have access to this profile's posts. Send a follow request to see them."
+  }
 
 }

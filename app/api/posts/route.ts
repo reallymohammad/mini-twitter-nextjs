@@ -1,20 +1,26 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+
+import { prisma } from "@/lib/prisma";
+import {
+  getPostInclude,
+  getVisiblePostWhere,
+  sanitizePostRelations,
+} from "@/lib/prisma/postInclude";
 import { getCurrentUser } from "@/lib/session";
-import { getPostInclude } from "@/lib/prisma/postInclude";
 
 export const runtime = "nodejs";
 
 class ReferencedPostNotFoundError extends Error {}
+class PrivatePostQuoteError extends Error {}
 
 const createPostSchema = z.object({
   content: z.string().max(280).nullish(),
   mediaUrls: z.array(z.string().url()).max(4).default([]),
   replyToId: z.string().min(1).nullish(),
   quoteOfId: z.string().min(1).nullish(),
-  quotedPostId: z.string().min(1).nullish(), // legacy alias
+  quotedPostId: z.string().min(1).nullish(),
   expectedUserId: z.string().optional(),
 });
 
@@ -33,30 +39,6 @@ function isAllowedCloudinaryImageUrl(
   } catch {
     return false;
   }
-}
-
-// حتی اگر پست‌هایی قبلاً بدون پاک‌کردن محتوا soft-delete شده باشند،
- // محتوای کوتِ حذف‌شده از این API برنگردد.
-function hideDeletedQuote<T extends object>(post: T): T {
-  const quote = "quoteOf" in post ? post.quoteOf : null;
-
-  if (
-    !quote ||
-    typeof quote !== "object" ||
-    !("deletedAt" in quote) ||
-    !quote.deletedAt
-  ) {
-    return post;
-  }
-
-  return {
-    ...post,
-    quoteOf: {
-      ...quote,
-      content: null,
-      mediaUrls: [],
-    },
-  } as T;
 }
 
 async function retrySerializable<T>(
@@ -90,7 +72,10 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const cursor = searchParams.get("cursor");
-    const parsedLimit = parseInt(searchParams.get("limit") || "10", 10);
+    const parsedLimit = parseInt(
+      searchParams.get("limit") || "10",
+      10
+    );
     const limit = Number.isFinite(parsedLimit)
       ? Math.min(Math.max(parsedLimit, 1), 50)
       : 10;
@@ -99,6 +84,7 @@ export async function GET(req: NextRequest) {
       where: {
         replyToId: null,
         deletedAt: null,
+        ...getVisiblePostWhere(currentUser.id),
       },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -112,12 +98,14 @@ export async function GET(req: NextRequest) {
     let nextCursor: string | undefined;
 
     if (posts.length > limit) {
-      posts.pop(); // فقط رکورد اضافه برای تشخیص وجود صفحهٔ بعد
+      posts.pop();
       nextCursor = posts[posts.length - 1].id;
     }
 
     return NextResponse.json({
-      posts: posts.map(hideDeletedQuote),
+      posts: posts.map((post) =>
+        sanitizePostRelations(post, currentUser.id)
+      ),
       nextCursor,
     });
   } catch (error) {
@@ -165,16 +153,15 @@ export async function POST(req: NextRequest) {
 
     if (expectedUserId && expectedUserId !== currentUser.id) {
       return NextResponse.json(
-        { error: "Session mismatch", code: "SESSION_MISMATCH" },
+        {
+          error: "Session mismatch",
+          code: "SESSION_MISMATCH",
+        },
         { status: 409 }
       );
     }
 
-    if (
-      quoteOfId &&
-      quotedPostId &&
-      quoteOfId !== quotedPostId
-    ) {
+    if (quoteOfId && quotedPostId && quoteOfId !== quotedPostId) {
       return NextResponse.json(
         { error: "Conflicting quoted post IDs" },
         { status: 400 }
@@ -232,12 +219,32 @@ export async function POST(req: NextRequest) {
               where: {
                 id: { in: refIds },
                 deletedAt: null,
+                ...getVisiblePostWhere(currentUser.id),
               },
-              select: { id: true },
+              select: {
+                id: true,
+                author: {
+                  select: { isPrivate: true },
+                },
+              },
             });
 
             if (found.length !== refIds.length) {
               throw new ReferencedPostNotFoundError();
+            }
+
+            if (targetQuoteId) {
+              const quotedPost = found.find(
+                (item) => item.id === targetQuoteId
+              );
+
+              if (!quotedPost) {
+                throw new ReferencedPostNotFoundError();
+              }
+
+              if (quotedPost.author.isPrivate) {
+                throw new PrivatePostQuoteError();
+              }
             }
           }
 
@@ -257,6 +264,7 @@ export async function POST(req: NextRequest) {
               where: {
                 id: targetReplyId,
                 deletedAt: null,
+                ...getVisiblePostWhere(currentUser.id),
               },
               data: {
                 replyCount: { increment: 1 },
@@ -273,6 +281,7 @@ export async function POST(req: NextRequest) {
               where: {
                 id: targetQuoteId,
                 deletedAt: null,
+                ...getVisiblePostWhere(currentUser.id),
               },
               data: {
                 quoteCount: { increment: 1 },
@@ -294,12 +303,25 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    return NextResponse.json(post, { status: 201 });
+    return NextResponse.json(
+      sanitizePostRelations(post, currentUser.id),
+      { status: 201 }
+    );
   } catch (error) {
     if (error instanceof ReferencedPostNotFoundError) {
       return NextResponse.json(
         { error: "Referenced post not found" },
         { status: 404 }
+      );
+    }
+
+    if (error instanceof PrivatePostQuoteError) {
+      return NextResponse.json(
+        {
+          error: "Cannot quote a private account's post",
+          code: "PRIVATE_POST_QUOTE",
+        },
+        { status: 403 }
       );
     }
 

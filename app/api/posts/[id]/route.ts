@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 
@@ -47,7 +48,8 @@ export async function DELETE(
             select: {
               authorId: true,
               deletedAt: true,
-              replyToId: true, // دریافت آیدی پست والد
+              replyToId: true,
+              quoteOfId: true,
             },
           });
 
@@ -76,7 +78,6 @@ export async function DELETE(
             return "not-found" as const;
           }
 
-          // اگر پست حذف‌شده یک پاسخ به پست دیگری بوده، شمارنده پست والد را کم کن
           if (post.replyToId) {
             await tx.post.updateMany({
               where: {
@@ -89,6 +90,18 @@ export async function DELETE(
             });
           }
 
+          if (post.quoteOfId) {
+            await tx.post.updateMany({
+              where: {
+                id: post.quoteOfId,
+                quoteCount: { gt: 0 },
+              },
+              data: {
+                quoteCount: { decrement: 1 },
+              },
+            });
+          }
+
           await tx.pinnedPost.deleteMany({
             where: { postId },
           });
@@ -96,7 +109,8 @@ export async function DELETE(
           return "deleted" as const;
         },
         {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          isolationLevel:
+            Prisma.TransactionIsolationLevel.Serializable,
         }
       )
     );

@@ -3,9 +3,11 @@
 
 import { useTransition } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, MapPin, Link2, Mail, Loader2 } from "lucide-react";
+import { CalendarDays, MapPin, Link2, Mail, Loader2, Lock } from "lucide-react";
 import { startDirectConversation } from "@/lib/dm/actions";
+import FollowButton from "@/components/user/FollowButton";
 
 interface User {
   id: string;
@@ -17,13 +19,14 @@ interface User {
   location?: string | null;
   website?: string | null;
   createdAt: Date;
+  isPrivate: boolean;
 }
 
 interface Props {
   user: User;
   counts: { followers: number; following: number; posts: number };
   isOwner: boolean;
-  isFollowing: boolean;
+  followStatus: "PENDING" | "ACCEPTED" | null;
   currentUserId?: string;
   locale: string;
 }
@@ -32,21 +35,12 @@ export default function ProfileHeader({
   user,
   counts,
   isOwner,
-  isFollowing,
+  followStatus,
   currentUserId,
   locale,
 }: Props) {
   const router = useRouter();
   const [isPendingMessage, startMessageTransition] = useTransition();
-
-  async function handleFollow() {
-    await fetch("/api/follow", {
-      method: isFollowing ? "DELETE" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetUserId: user.id }),
-    });
-    router.refresh();
-  }
 
   function handleDirectMessage() {
     startMessageTransition(async () => {
@@ -70,20 +64,30 @@ export default function ProfileHeader({
   return (
     <div>
       {/* Cover */}
-      <div className="h-36 bg-muted relative overflow-hidden">
+      <div className="relative h-36 overflow-hidden bg-muted">
         {user.coverImageUrl && (
-          <Image src={user.coverImageUrl} alt="Cover" fill className="object-cover" />
+          <Image
+            src={user.coverImageUrl}
+            alt="Cover"
+            fill
+            className="object-cover"
+          />
         )}
       </div>
 
       <div className="px-4 pb-4">
         {/* Avatar + action button row */}
-        <div className="flex items-end justify-between -mt-10 mb-3">
-          <div className="w-20 h-20 rounded-full border-4 border-background bg-muted overflow-hidden relative">
+        <div className="-mt-10 mb-3 flex items-end justify-between">
+          <div className="relative h-20 w-20 overflow-hidden rounded-full border-4 border-background bg-muted">
             {user.avatarUrl ? (
-              <Image src={user.avatarUrl} alt={user.fullName} fill className="object-cover" />
+              <Image
+                src={user.avatarUrl}
+                alt={user.fullName}
+                fill
+                className="object-cover"
+              />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-2xl font-semibold text-muted-foreground">
+              <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-muted-foreground">
                 {user.fullName[0]}
               </div>
             )}
@@ -92,8 +96,9 @@ export default function ProfileHeader({
           <div className="flex items-center gap-2">
             {isOwner ? (
               <button
+                type="button"
                 onClick={() => router.push(`/${locale}/settings/profile`)}
-                className="px-4 py-1.5 text-sm font-medium rounded-full border border-border hover:bg-muted transition-colors"
+                className="rounded-full border border-border px-4 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
               >
                 Edit profile
               </button>
@@ -106,40 +111,47 @@ export default function ProfileHeader({
                   disabled={isPendingMessage}
                   title="Direct Message"
                   aria-label="Send direct message"
-                  className="p-2 rounded-full border border-border hover:bg-muted transition-colors disabled:opacity-50 text-foreground"
+                  className="rounded-full border border-border p-2 text-foreground transition-colors hover:bg-muted disabled:opacity-50"
                 >
                   {isPendingMessage ? (
-                    <Loader2 size={18} className="animate-spin text-muted-foreground" />
+                    <Loader2
+                      size={18}
+                      className="animate-spin text-muted-foreground"
+                    />
                   ) : (
                     <Mail size={18} />
                   )}
                 </button>
 
-                {/* Follow / Unfollow Button */}
-                <button
-                  onClick={handleFollow}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                    isFollowing
-                      ? "border border-border hover:bg-muted text-foreground"
-                      : "bg-foreground text-background hover:opacity-90"
-                  }`}
-                >
-                  {isFollowing ? "Following" : "Follow"}
-                </button>
+                {/* Follow / Requested / Following Button */}
+                <FollowButton
+                  targetUserId={user.id}
+                  initialStatus={followStatus}
+                  currentUserId={currentUserId}
+                />
               </>
             ) : null}
           </div>
         </div>
 
         {/* Name & username */}
-        <h1 className="text-lg font-bold leading-tight">{user.fullName}</h1>
-        <p className="text-sm text-muted-foreground mb-3">@{user.username}</p>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-lg font-bold leading-tight">{user.fullName}</h1>
+          {user.isPrivate && (
+            <Lock
+              size={15}
+              className="text-muted-foreground"
+              aria-label="Private account"
+            />
+          )}
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">@{user.username}</p>
 
         {/* Bio */}
-        {user.bio && <p className="text-sm mb-3 leading-relaxed">{user.bio}</p>}
+        {user.bio && <p className="mb-3 text-sm leading-relaxed">{user.bio}</p>}
 
         {/* Meta */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground mb-3">
+        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {user.location && (
             <span className="flex items-center gap-1">
               <MapPin size={14} /> {user.location}
@@ -162,14 +174,20 @@ export default function ProfileHeader({
 
         {/* Counts */}
         <div className="flex gap-4 text-sm">
-          <span>
+          <Link
+            href={`/${locale}/${user.username}/following`}
+            className="hover:underline"
+          >
             <strong className="font-semibold">{counts.following}</strong>{" "}
             <span className="text-muted-foreground">Following</span>
-          </span>
-          <span>
+          </Link>
+          <Link
+            href={`/${locale}/${user.username}/followers`}
+            className="hover:underline"
+          >
             <strong className="font-semibold">{counts.followers}</strong>{" "}
             <span className="text-muted-foreground">Followers</span>
-          </span>
+          </Link>
         </div>
       </div>
     </div>

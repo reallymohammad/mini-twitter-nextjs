@@ -1,20 +1,24 @@
-// app/[locale]/(main)/home/page.tsx
-import { getCurrentUser } from "@/lib/session";
 import { redirect } from "next/navigation";
+
 import FeedTabs from "@/components/feed/FeedTabs";
+import { getCurrentUser } from "@/lib/session";
 
 export default async function HomePage({
   params,
 }: {
   params: Promise<{ locale: string }>;
 }) {
-  const { locale } = await params;
+  await params;
+
   const currentUser = await getCurrentUser();
-  if (!currentUser) redirect("/login");
+
+  if (!currentUser) {
+    redirect("/login");
+  }
 
   return (
     <main className="min-h-screen">
-      <FeedTabs currentUser={currentUser}  />
+      <FeedTabs currentUserId={currentUser.id} />
     </main>
   );
 }

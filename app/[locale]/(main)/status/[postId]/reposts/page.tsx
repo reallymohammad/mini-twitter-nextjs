@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ArrowLeft, User } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { getVisiblePostWhere } from "@/lib/prisma/postInclude";
 import FollowButton from "@/components/user/FollowButton";
 
 interface Props {
@@ -14,15 +15,43 @@ export default async function RepostsPage({ params }: Props) {
   const { locale, postId } = await params;
   const currentUser = await getCurrentUser();
 
-  const post = await prisma.post.findUnique({
-    where: { id: postId, deletedAt: null },
+  // ۱. بررسی دسترسی بیننده به خودِ پست اصلی
+  const post = await prisma.post.findFirst({
+    where: {
+      id: postId,
+      ...getVisiblePostWhere(currentUser?.id),
+    },
     select: { id: true },
   });
 
   if (!post) notFound();
 
+  // ۲. فیلتر ریپوست‌کنندگان: عمومی‌ها + (اگر لاگین باشد: خودش یا کسانی که فالوور ACCEPTED آن‌هاست)
+  const visibleReposterWhere = {
+    deletedAt: null,
+    OR: [
+      { isPrivate: false },
+      ...(currentUser
+        ? [
+            { id: currentUser.id },
+            {
+              followers: {
+                some: {
+                  followerId: currentUser.id,
+                  status: "ACCEPTED" as const,
+                },
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
   const reposts = await prisma.repost.findMany({
-    where: { postId },
+    where: {
+      postId,
+      user: { is: visibleReposterWhere },
+    },
     orderBy: { createdAt: "desc" },
     include: {
       user: {
@@ -37,17 +66,20 @@ export default async function RepostsPage({ params }: Props) {
     },
   });
 
-  // استخراج لیست کاربرانی که کاربر جاری آن‌ها را فالو کرده است
-  let followingIds = new Set<string>();
-  if (currentUser) {
+  // ۳. استخراج وضعیت فالو بودن برای دکمه FollowButton (فقط وضعیت ACCEPTED)
+  const followingIds = new Set<string>();
+  if (currentUser && reposts.length > 0) {
     const follows = await prisma.follow.findMany({
       where: {
         followerId: currentUser.id,
         followingId: { in: reposts.map((r) => r.user.id) },
+        status: "ACCEPTED",
       },
       select: { followingId: true },
     });
-    followingIds = new Set(follows.map((f) => f.followingId));
+    for (const follow of follows) {
+      followingIds.add(follow.followingId);
+    }
   }
 
   return (
@@ -57,6 +89,7 @@ export default async function RepostsPage({ params }: Props) {
         <Link
           href={`/${locale}/status/${postId}`}
           className="-ml-2 rounded-full p-2 transition-colors hover:bg-muted"
+          aria-label="Back to post"
         >
           <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
         </Link>
@@ -79,7 +112,7 @@ export default async function RepostsPage({ params }: Props) {
             >
               <Link
                 href={`/${locale}/${user.username}`}
-                className="flex flex-1 items-start gap-3 min-w-0 pr-2"
+                className="flex min-w-0 flex-1 items-start gap-3 pr-2"
               >
                 {/* Avatar */}
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">

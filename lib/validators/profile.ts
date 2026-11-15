@@ -15,6 +15,7 @@ export const profileSchema = z.object({
   birthDate: z.string().optional().default(""),
   avatarUrl: z.string().url().optional().or(z.literal("")).default(""),
   coverImageUrl: z.string().url().optional().or(z.literal("")).default(""),
+  isPrivate: z.boolean().optional().default(false), // <-- اضافه شد
 });
 
 export type ProfileInput = z.infer<typeof profileSchema>;

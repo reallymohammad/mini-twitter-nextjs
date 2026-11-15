@@ -28,6 +28,7 @@ export default async function EditProfilePage({ params }: Props) {
               : "",
             avatarUrl: user.avatarUrl ?? "",
             coverImageUrl: user.coverImageUrl ?? "",
+            isPrivate: user.isPrivate ?? false, // <-- اینجا اضافه شد
           }}
           username={user.username}
         />

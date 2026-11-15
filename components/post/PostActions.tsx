@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
+
 import { cn } from "@/lib/utils";
 import type { PostWithRelations } from "@/lib/types/post";
 import Composer from "./Composer";
@@ -27,28 +28,32 @@ interface PostActionsProps {
     name: string | null;
     avatarUrl: string | null;
   };
+  onPostChanged?: () => void;
 }
 
 export default function PostActions({
   post,
   currentUserId,
   currentUser,
+  onPostChanged,
 }: PostActionsProps) {
   const router = useRouter();
   const params = useParams<{ locale?: string }>();
-  const {
-    showPostUnavailable,
-    postUnavailableNotice,
-  } = usePostUnavailableNotice();
+
+  const { showPostUnavailable, postUnavailableNotice } =
+    usePostUnavailableNotice();
 
   const locale =
     params?.locale && ["fa", "ar", "en"].includes(params.locale)
       ? `/${params.locale}`
       : "";
 
+  // Missing privacy information is treated as unavailable for reposting.
+  const canRepostOrQuote = post.author.isPrivate === false;
+
   const serverLikes = post._count?.likes ?? post.likeCount ?? 0;
   const serverReposts = post.repostCount ?? post._count?.reposts ?? 0;
-  const serverQuotes = post.quoteCount ?? post._count?.quotes ?? 0;
+  const serverQuotes = post._count?.quotes ?? post.quoteCount ?? 0;
 
   const serverIsLiked =
     post.isLiked ??
@@ -68,29 +73,38 @@ export default function PostActions({
     post.isBookmarked ??
     Boolean(
       currentUserId &&
-        post.bookmarks?.some((bookmark) => bookmark.userId === currentUserId)
+        post.bookmarks?.some(
+          (bookmark) => bookmark.userId === currentUserId
+        )
     );
 
   const [likes, setLikes] = useState(serverLikes);
   const [reposts, setReposts] = useState(serverReposts);
   const [quotes, setQuotes] = useState(serverQuotes);
-
   const [isLiked, setIsLiked] = useState(serverIsLiked);
   const [isReposted, setIsReposted] = useState(serverIsReposted);
   const [isBookmarked, setIsBookmarked] = useState(serverIsBookmarked);
-
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
   const [isBookmarking, setIsBookmarking] = useState(false);
   const [showRepostMenu, setShowRepostMenu] = useState(false);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [showReplyModal, setShowReplyModal] = useState(false);
+  const [repostError, setRepostError] = useState<string | null>(null);
 
   const likingRef = useRef(false);
   const repostingRef = useRef(false);
   const bookmarkingRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // اگر اطلاعات پست واقعاً به‌روزرسانی شد، وضعیت محلی را همگام کن.
+  const notifyPostChanged = () => {
+    if (onPostChanged) {
+      onPostChanged();
+    } else {
+      router.refresh();
+    }
+  };
+
   useEffect(() => {
     setLikes(serverLikes);
     setIsLiked(serverIsLiked);
@@ -110,11 +124,19 @@ export default function PostActions({
   }, [post.id, serverIsBookmarked]);
 
   useEffect(() => {
+    setRepostError(null);
+  }, [post.id]);
+
+  useEffect(() => {
+    if (!canRepostOrQuote) {
+      setShowRepostMenu(false);
+      setShowQuoteModal(false);
+    }
+  }, [canRepostOrQuote]);
+
+  useEffect(() => {
     const handler = (event: globalThis.MouseEvent) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(event.target as Node)
-      ) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowRepostMenu(false);
       }
     };
@@ -167,12 +189,13 @@ export default function PostActions({
       setIsLiking(false);
     }
 
-    if (succeeded) router.refresh();
+    if (succeeded) notifyPostChanged();
   };
 
   const handleRepost = async () => {
-    if (!currentUserId || repostingRef.current) return;
+    if (!currentUserId || !canRepostOrQuote || repostingRef.current) return;
 
+    setRepostError(null);
     setShowRepostMenu(false);
     repostingRef.current = true;
     setIsReposting(true);
@@ -198,6 +221,19 @@ export default function PostActions({
         return;
       }
 
+      if (response.status === 403) {
+        const body: { code?: string } | null = await response
+          .json()
+          .catch(() => null);
+
+        if (body?.code === "PRIVATE_POST_REPOST") {
+          setIsReposted(previousReposted);
+          setReposts(previousReposts);
+          setRepostError("نمی‌توان پست حساب خصوصی را بازنشر کرد.");
+          return;
+        }
+      }
+
       if (!response.ok) {
         throw new Error(`Repost request failed: ${response.status}`);
       }
@@ -212,7 +248,7 @@ export default function PostActions({
       setIsReposting(false);
     }
 
-    if (succeeded) router.refresh();
+    if (succeeded) notifyPostChanged();
   };
 
   const handleBookmark = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -230,7 +266,6 @@ export default function PostActions({
     let succeeded = false;
 
     try {
-      // API فعلی: POST وضعیت بوکمارک را toggle می‌کند.
       const response = await fetch(`/api/posts/${post.id}/bookmark`, {
         method: "POST",
       });
@@ -254,7 +289,7 @@ export default function PostActions({
       setIsBookmarking(false);
     }
 
-    if (succeeded) router.refresh();
+    if (succeeded) notifyPostChanged();
   };
 
   const activeUser = currentUser ?? {
@@ -265,10 +300,14 @@ export default function PostActions({
   };
 
   const totalReposts = reposts + quotes;
-const replyCount = post._count?.replies ?? post.replyCount ?? 0;
-
-  // اگر خود پست با deletedAt به این کامپوننت رسیده، اکشن نشان نده.
+  const replyCount = post._count?.replies ?? post.replyCount ?? 0;
   const isDeleted = "deletedAt" in post && Boolean(post.deletedAt);
+  const repostDisabled = !currentUserId || isReposting || !canRepostOrQuote;
+  const repostLabel = !canRepostOrQuote
+    ? "Repost and quote unavailable for this post"
+    : !currentUserId
+      ? "Sign in to repost or quote"
+      : "Repost or quote";
 
   if (isDeleted) {
     return <DeletedPostPlaceholder className="mt-3" />;
@@ -278,13 +317,23 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
     <>
       {postUnavailableNotice}
 
+      {repostError && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {repostError}
+        </p>
+      )}
+
       <div className="mt-3 flex items-center justify-between text-muted-foreground">
         {/* Reply */}
         <button
           type="button"
           onClick={(event) => {
             event.stopPropagation();
-            router.push(`${locale}/status/${post.id}`);
+            if (window.location.pathname.includes("/status/")) {
+              setShowReplyModal(true);
+            } else {
+              router.push(`${locale}/status/${post.id}`);
+            }
           }}
           className="group flex items-center gap-1.5 transition-colors hover:text-blue-500"
           aria-label="Reply"
@@ -298,28 +347,33 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
         </button>
 
         {/* Repost & Quote */}
-        <div className="relative" ref={menuRef}>
+        <div className="relative" ref={menuRef} title={repostLabel}>
           <button
             type="button"
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (repostDisabled) return;
               setShowRepostMenu((value) => !value);
             }}
-            disabled={!currentUserId || isReposting}
-            title={!currentUserId ? "Sign in to repost or quote" : undefined}
-            aria-label="Repost or quote"
+            disabled={repostDisabled}
+            aria-label={repostLabel}
+            aria-expanded={showRepostMenu && canRepostOrQuote}
+            aria-haspopup="menu"
             className={cn(
               "group flex items-center gap-1.5 transition-colors",
-              isReposted ? "text-green-500" : "hover:text-green-500"
+              repostDisabled
+                ? "cursor-not-allowed opacity-50"
+                : isReposted
+                  ? "text-green-500"
+                  : "hover:text-green-500"
             )}
           >
             <div
               className={cn(
                 "rounded-full p-2 transition-colors",
-                isReposted
-                  ? "bg-green-500/10"
-                  : "group-hover:bg-green-500/10"
+                !repostDisabled &&
+                  (isReposted ? "bg-green-500/10" : "group-hover:bg-green-500/10")
               )}
             >
               <Repeat2 className="size-4" />
@@ -329,7 +383,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
             )}
           </button>
 
-          {showRepostMenu && (
+          {showRepostMenu && canRepostOrQuote && currentUserId && (
             <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[170px] overflow-hidden rounded-xl border border-border bg-popover shadow-xl animate-in fade-in zoom-in-95 duration-100">
               <button
                 type="button"
@@ -344,7 +398,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
                   <span>{isReposted ? "Undo Repost" : "Repost"}</span>
                 </div>
                 {reposts > 0 && (
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span className="text-xs tabular-nums text-muted-foreground">
                     {reposts}
                   </span>
                 )}
@@ -354,6 +408,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
+                  if (!canRepostOrQuote) return;
                   setShowRepostMenu(false);
                   setShowQuoteModal(true);
                 }}
@@ -364,7 +419,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
                   <span>Quote</span>
                 </div>
                 {quotes > 0 && (
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span className="text-xs tabular-nums text-muted-foreground">
                     {quotes}
                   </span>
                 )}
@@ -386,17 +441,10 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
             isLiked ? "text-rose-500" : "hover:text-rose-500"
           )}
         >
-          <div
-            className={cn(
-              "rounded-full p-2 transition-colors",
-              isLiked ? "bg-rose-500/10" : "group-hover:bg-rose-500/10"
-            )}
-          >
+          <div className={cn("rounded-full p-2 transition-colors", isLiked ? "bg-rose-500/10" : "group-hover:bg-rose-500/10")}>
             <Heart className={cn("size-4", isLiked && "fill-current")} />
           </div>
-          {likes > 0 && (
-            <span className="text-xs tabular-nums">{likes}</span>
-          )}
+          {likes > 0 && <span className="text-xs tabular-nums">{likes}</span>}
         </button>
 
         {/* Bookmark */}
@@ -412,21 +460,12 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
             isBookmarked ? "text-amber-500" : "hover:text-amber-500"
           )}
         >
-          <div
-            className={cn(
-              "rounded-full p-2 transition-colors",
-              isBookmarked
-                ? "bg-amber-500/10"
-                : "group-hover:bg-amber-500/10"
-            )}
-          >
-            <Bookmark
-              className={cn("size-4", isBookmarked && "fill-current")}
-            />
+          <div className={cn("rounded-full p-2 transition-colors", isBookmarked ? "bg-amber-500/10" : "group-hover:bg-amber-500/10")}>
+            <Bookmark className={cn("size-4", isBookmarked && "fill-current")} />
           </div>
         </button>
 
-        {/* Share: رفتار فعلی حفظ شده */}
+        {/* Share */}
         <button
           type="button"
           onClick={(event) => event.stopPropagation()}
@@ -439,9 +478,52 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
         </button>
       </div>
 
-      {showQuoteModal && currentUserId && (
+      {/* Reply Modal */}
+      {showReplyModal && currentUserId && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4"
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowReplyModal(false);
+          }}
+        >
+          <div
+            className="relative flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-background shadow-2xl animate-in slide-in-from-bottom duration-300 sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-3">
+              <span className="text-sm font-semibold text-foreground">
+                Reply to @{post.author.username}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowReplyModal(false)}
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Close reply"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto overscroll-contain p-2">
+              <Composer
+                currentUser={activeUser}
+                replyToId={post.id}
+                autoFocus
+                placeholder="Post your reply"
+                onSuccess={() => {
+                  setShowReplyModal(false);
+                  notifyPostChanged();
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quote Modal */}
+      {showQuoteModal && currentUserId && canRepostOrQuote && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-4"
           onClick={(event) => {
             event.stopPropagation();
             setShowQuoteModal(false);
@@ -452,9 +534,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-2.5">
-              <span className="text-sm font-semibold text-foreground">
-                Quote Post
-              </span>
+              <span className="text-sm font-semibold text-foreground">Quote Post</span>
               <button
                 type="button"
                 onClick={() => setShowQuoteModal(false)}
@@ -464,7 +544,6 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
                 <X size={18} />
               </button>
             </div>
-
             <div className="flex-1 overflow-y-auto overscroll-contain">
               <Composer
                 currentUser={activeUser}
@@ -474,7 +553,7 @@ const replyCount = post._count?.replies ?? post.replyCount ?? 0;
                 onSuccess={() => {
                   setShowQuoteModal(false);
                   setQuotes((count) => count + 1);
-                  router.refresh();
+                  notifyPostChanged();
                 }}
                 onRemoveQuote={() => setShowQuoteModal(false)}
               />

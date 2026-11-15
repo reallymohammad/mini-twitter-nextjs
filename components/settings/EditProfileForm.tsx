@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Lock } from "lucide-react";
 
 interface InitialData {
   fullName: string;
@@ -12,6 +13,7 @@ interface InitialData {
   birthDate: string;
   avatarUrl: string;
   coverImageUrl: string;
+  isPrivate?: boolean;
 }
 
 interface Props {
@@ -22,7 +24,10 @@ interface Props {
 
 export default function EditProfileForm({ locale, username, initialData }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<InitialData>(initialData);
+  const [form, setForm] = useState<InitialData>({
+    ...initialData,
+    isPrivate: initialData.isPrivate ?? false,
+  });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState(initialData.avatarUrl);
@@ -33,7 +38,7 @@ export default function EditProfileForm({ locale, username, initialData }: Props
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  function set(field: keyof InitialData, value: string) {
+  function set<K extends keyof InitialData>(field: K, value: InitialData[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
@@ -202,6 +207,39 @@ export default function EditProfileForm({ locale, username, initialData }: Props
           value={form.birthDate}
           onChange={(e) => set("birthDate", e.target.value)}
         />
+      </div>
+
+      {/* Account Privacy Toggle */}
+      <div className="pt-2">
+        <div className="flex items-center justify-between rounded-xl border border-border p-3.5 bg-muted/40 hover:bg-muted/70 transition-colors">
+          <div className="flex items-start gap-3 pe-2">
+            <div className="mt-0.5 rounded-full p-2 bg-background border border-border text-foreground">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div className="space-y-0.5">
+              <label
+                htmlFor="isPrivateSwitch"
+                className="text-sm font-semibold cursor-pointer select-none"
+              >
+                Private account
+              </label>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                When your account is private, only people you approve can see your posts and follower lists.
+              </p>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              id="isPrivateSwitch"
+              type="checkbox"
+              className="sr-only peer"
+              checked={Boolean(form.isPrivate)}
+              onChange={(e) => set("isPrivate", e.target.checked)}
+            />
+            <div className="w-11 h-6 bg-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-foreground"></div>
+          </label>
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}

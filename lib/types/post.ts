@@ -3,8 +3,13 @@ import type { Post, User } from "@prisma/client";
 
 export type PostType = "POST" | "REPLY" | "QUOTE";
 
+type PostAuthor = Pick<
+  User,
+  "id" | "username" | "fullName" | "avatarUrl" | "badge" | "isPrivate"
+>;
+
 export type PostWithRelations = Post & {
-  author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+  author: PostAuthor;
   _count: {
     likes: number;
     replies: number;
@@ -19,14 +24,14 @@ export type PostWithRelations = Post & {
   isBookmarked?: boolean;
   pinnedBy: { userId: string }[];
   replyTo?: (Post & {
-    author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+    author: PostAuthor;
   }) | null;
   quotedPost?: (Post & {
-    author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+    author: PostAuthor;
     _count: { likes: number; replies: number; reposts: number; quotes?: number };
   }) | null;
   quoteOf?: (Post & {
-    author: Pick<User, "id" | "username" | "fullName" | "avatarUrl" | "badge">;
+    author: PostAuthor;
     _count?: { likes: number; replies: number; reposts: number; quotes?: number };
   }) | null;
 };

@@ -1,6 +1,14 @@
 import { notFound } from "next/navigation";
 import { Prisma } from "@prisma/client";
+import { Lock } from "lucide-react";
+import { getTranslations } from "next-intl/server";
+
 import { prisma } from "@/lib/prisma";
+import {
+  getRelatedAuthorSelect,
+  getVisiblePostWhere,
+  sanitizePostRelations,
+} from "@/lib/prisma/postInclude";
 import { getCurrentUser } from "@/lib/session";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
@@ -16,6 +24,7 @@ const authorSelect = {
   fullName: true,
   avatarUrl: true,
   badge: true,
+  isPrivate: true,
 } as const;
 
 const getPostInclude = (currentUserId?: string) => {
@@ -27,46 +36,70 @@ const getPostInclude = (currentUserId?: string) => {
     : false;
 
   return {
-    author: { select: authorSelect },
+    author: {
+      select: authorSelect,
+    },
+
     _count: {
       select: {
         likes: true,
-        replies: true,
+        replies: {
+          where: { deletedAt: null },
+        },
         reposts: true,
         bookmarks: true,
-        quotes: true,
+        quotes: {
+          where: { deletedAt: null },
+        },
       },
     },
-    pinnedBy: { select: { userId: true, order: true } },
+
+    pinnedBy: {
+      select: {
+        userId: true,
+        order: true,
+      },
+    },
+
     replyTo: {
       select: {
         id: true,
         content: true,
-        author: { select: authorSelect },
+        deletedAt: true,
+        author: {
+          select: getRelatedAuthorSelect(currentUserId),
+        },
       },
     },
+
     quoteOf: {
       include: {
-        author: { select: authorSelect },
+        author: {
+          select: getRelatedAuthorSelect(currentUserId),
+        },
         likes: userFilter,
         bookmarks: userFilter,
         reposts: userFilter,
         _count: {
           select: {
             likes: true,
-            replies: true,
+            replies: {
+              where: { deletedAt: null },
+            },
             reposts: true,
-            quotes: true,
+            quotes: {
+              where: { deletedAt: null },
+            },
           },
         },
       },
     },
+
     likes: userFilter,
     bookmarks: userFilter,
     reposts: userFilter,
   } as const satisfies Prisma.PostInclude;
 };
-
 
 type PostPayload = Prisma.PostGetPayload<{
   include: ReturnType<typeof getPostInclude>;
@@ -78,11 +111,14 @@ type FeedItem = PostPayload & {
   isPinnedProfile?: boolean;
 };
 
-export default async function ProfilePage({ params, searchParams }: Props) {
+export default async function ProfilePage({
+  params,
+  searchParams,
+}: Props) {
   const { username, locale } = await params;
   const { tab = "posts" } = await searchParams;
 
-  const [profileUser, currentUser] = await Promise.all([
+  const [profileUser, currentUser, t] = await Promise.all([
     prisma.user.findFirst({
       where: {
         username,
@@ -105,6 +141,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       },
     }),
     getCurrentUser(),
+    getTranslations({ locale, namespace: "profile" }),
   ]);
 
   if (!profileUser) notFound();
@@ -127,127 +164,192 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         })
       : null;
 
-  const isFollowing = follow?.status === "ACCEPTED";
+  const followStatus = follow?.status ?? null;
+  const isFollowing = followStatus === "ACCEPTED";
+  const canViewContent =
+    isOwner || !profileUser.isPrivate || isFollowing;
 
   let posts: FeedItem[] = [];
 
-  if (tab === "posts") {
+  if (canViewContent) {
+    const visiblePost = getVisiblePostWhere(currentUser?.id);
     const postInclude = getPostInclude(currentUser?.id);
 
-    const [pinnedRecords, userPosts, userReposts] = await Promise.all([
-      prisma.pinnedPost.findMany({
-        where: {
-          userId: profileUser.id,
-          post: { deletedAt: null },
-        },
-        orderBy: { order: "asc" },
-        include: {
-          post: { include: postInclude },
-        },
-      }),
+    if (tab === "posts") {
+      const [pinnedRecords, userPosts, userReposts] =
+        await Promise.all([
+          prisma.pinnedPost.findMany({
+            where: {
+              userId: profileUser.id,
+              post: {
+                is: {
+                  deletedAt: null,
+                  ...visiblePost,
+                },
+              },
+            },
+            orderBy: { order: "asc" },
+            include: {
+              post: {
+                include: postInclude,
+              },
+            },
+          }),
 
-      prisma.post.findMany({
+          prisma.post.findMany({
+            where: {
+              authorId: profileUser.id,
+              deletedAt: null,
+              replyToId: null,
+              ...visiblePost,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            include: postInclude,
+          }),
+
+          prisma.repost.findMany({
+            where: {
+              userId: profileUser.id,
+              post: {
+                is: {
+                  deletedAt: null,
+                  ...visiblePost,
+                  author: { is: { isPrivate: false } },
+                },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            include: {
+              post: {
+                include: postInclude,
+              },
+            },
+          }),
+        ]);
+
+      const pinnedItems: FeedItem[] = pinnedRecords
+        .filter(
+          (record) =>
+            record.post && record.post.deletedAt === null
+        )
+        .map((record) => ({
+          ...record.post,
+          timelineDate: record.createdAt,
+          isPinnedProfile: true,
+        }));
+
+      const pinnedPostIds = new Set(
+        pinnedItems.map((post) => post.id)
+      );
+
+      const normalItems: FeedItem[] = [
+        ...userPosts
+          .filter((post) => !pinnedPostIds.has(post.id))
+          .map((post) => ({
+            ...post,
+            timelineDate: post.createdAt,
+          })),
+
+        ...userReposts
+          .filter(
+            (repost) =>
+              repost.post &&
+              repost.post.deletedAt === null &&
+              !pinnedPostIds.has(repost.postId)
+          )
+          .map((repost) => ({
+            ...repost.post,
+            repostedByName: displayName,
+            timelineDate: repost.createdAt,
+          })),
+      ].sort(
+        (a, b) =>
+          b.timelineDate.getTime() - a.timelineDate.getTime()
+      );
+
+      posts = [...pinnedItems, ...normalItems].slice(0, 20);
+    } else if (tab === "replies") {
+      const data = await prisma.post.findMany({
         where: {
           authorId: profileUser.id,
           deletedAt: null,
-          replyToId: null,
+          replyToId: { not: null },
+          ...visiblePost,
         },
         orderBy: { createdAt: "desc" },
         take: 20,
         include: postInclude,
-      }),
+      });
 
-      prisma.repost.findMany({
+      posts = data.map((post) => ({
+        ...post,
+        timelineDate: post.createdAt,
+      }));
+    } else if (tab === "likes") {
+      const data = await prisma.post.findMany({
+        where: {
+          deletedAt: null,
+          likes: {
+            some: { userId: profileUser.id },
+          },
+          ...visiblePost,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: postInclude,
+      });
+
+      posts = data.map((post) => ({
+        ...post,
+        timelineDate: post.createdAt,
+      }));
+    } else if (tab === "reposts") {
+      const data = await prisma.repost.findMany({
         where: {
           userId: profileUser.id,
-          post: { deletedAt: null },
+          post: {
+            is: {
+              deletedAt: null,
+              ...visiblePost,
+              author: { is: { isPrivate: false } },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
         take: 20,
         include: {
-          post: { include: postInclude },
+          post: {
+            include: postInclude,
+          },
         },
-      }),
-    ]);
+      });
 
-    const pinnedItems: FeedItem[] = pinnedRecords.map((record) => ({
-      ...(record.post as PostPayload),
-      timelineDate: record.createdAt,
-      isPinnedProfile: true,
-    }));
-
-    const pinnedPostIds = new Set(pinnedItems.map((post) => post.id));
-
-    const normalItems: FeedItem[] = [
-      ...userPosts
-        .filter((post) => !pinnedPostIds.has(post.id))
-        .map((post) => ({
-          ...post,
-          timelineDate: post.createdAt,
-        })),
-      ...userReposts
-        .filter((repost) => !pinnedPostIds.has(repost.postId))
+      posts = data
+        .filter(
+          (repost) =>
+            repost.post && repost.post.deletedAt === null
+        )
         .map((repost) => ({
-          ...(repost.post as PostPayload),
+          ...repost.post,
           repostedByName: displayName,
           timelineDate: repost.createdAt,
-        })),
-    ].sort(
-      (a, b) => b.timelineDate.getTime() - a.timelineDate.getTime()
-    );
+        }));
+    }
 
-    posts = [...pinnedItems, ...normalItems].slice(0, 20);
-  } else if (tab === "replies") {
-    const data = await prisma.post.findMany({
-      where: {
-        authorId: profileUser.id,
-        deletedAt: null,
-        replyToId: { not: null },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: getPostInclude(currentUser?.id),
+    posts = posts.map((post) => {
+      const safe = sanitizePostRelations(post, currentUser?.id);
+      const counts = safe._count;
+
+      return {
+        ...safe,
+        likeCount: counts.likes,
+        replyCount: counts.replies,
+        repostCount: counts.reposts,
+        quoteCount: counts.quotes,
+      };
     });
-
-    posts = data.map((post) => ({
-      ...post,
-      timelineDate: post.createdAt,
-    }));
-  } else if (tab === "likes") {
-    const data = await prisma.post.findMany({
-      where: {
-        deletedAt: null,
-        likes: { some: { userId: profileUser.id } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: getPostInclude(currentUser?.id),
-    });
-
-    posts = data.map((post) => ({
-      ...post,
-      timelineDate: post.createdAt,
-    }));
-  } else if (tab === "reposts") {
-    const data = await prisma.repost.findMany({
-      where: {
-        userId: profileUser.id,
-        post: { deletedAt: null },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: {
-        post: {
-          include: getPostInclude(currentUser?.id),
-        },
-      },
-    });
-
-    posts = data.map((repost) => ({
-      ...(repost.post as PostPayload),
-      repostedByName: displayName,
-      timelineDate: repost.createdAt,
-    }));
   }
 
   return (
@@ -256,18 +358,32 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         user={profileUser}
         counts={profileUser._count}
         isOwner={isOwner}
-        isFollowing={isFollowing}
+        followStatus={followStatus}
         currentUserId={currentUser?.id}
         locale={locale}
       />
 
-      <ProfileTabs
-        username={username}
-        locale={locale}
-        activeTab={tab}
-        posts={posts as any}
-        currentUserId={currentUser?.id}
-      />
+      {canViewContent ? (
+        <ProfileTabs
+          username={username}
+          locale={locale}
+          activeTab={tab}
+          posts={posts as any}
+          currentUserId={currentUser?.id}
+        />
+      ) : (
+        <div className="mx-auto flex max-w-md flex-col items-center justify-center border-t border-border px-4 py-16 text-center">
+          <div className="mb-4 rounded-full border border-border bg-muted p-4">
+            <Lock className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h2 className="text-xl font-bold tracking-tight text-foreground">
+            {t("privateNoticeTitle")}
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {t("privateNoticeDesc")}
+          </p>
+        </div>
+      )}
     </>
   );
 }
