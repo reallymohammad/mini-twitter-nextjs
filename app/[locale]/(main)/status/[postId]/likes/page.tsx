@@ -15,20 +15,36 @@ export default async function LikesPage({ params }: Props) {
   const { locale, postId } = await params;
   const currentUser = await getCurrentUser();
 
-  // اطمینان از اینکه پست برای بیننده قابل مشاهده است
   const post = await prisma.post.findFirst({
-    where: {
-      id: postId,
-      ...getVisiblePostWhere(currentUser?.id),
-    },
-    select: { id: true },
-  });
+  where: {
+    id: postId,
+    ...getVisiblePostWhere(currentUser?.id, {
+      includeBlockedByViewer: true,
+    }),
+  },
+  select: { id: true },
+});
+
 
   if (!post) notFound();
 
-  // فیلتر کاربران قابل مشاهده (عمومی یا خصوصیِ فالو شده)
   const visibleLikerWhere = {
     deletedAt: null,
+
+    // از هر دو سمت بلاک را بررسی می‌کنیم:
+    // blockedBy: این کاربر، بیننده را بلاک کرده است.
+    // blocking: بیننده را این کاربر بلاک کرده است.
+    ...(currentUser
+      ? {
+          blockedBy: {
+            none: { blockerId: currentUser.id },
+          },
+          blocking: {
+            none: { blockedId: currentUser.id },
+          },
+        }
+      : {}),
+
     OR: [
       { isPrivate: false },
       ...(currentUser
@@ -67,6 +83,7 @@ export default async function LikesPage({ params }: Props) {
   });
 
   const followingIds = new Set<string>();
+
   if (currentUser && likes.length > 0) {
     const follows = await prisma.follow.findMany({
       where: {
@@ -77,7 +94,9 @@ export default async function LikesPage({ params }: Props) {
       select: { followingId: true },
     });
 
-    for (const follow of follows) followingIds.add(follow.followingId);
+    for (const follow of follows) {
+      followingIds.add(follow.followingId);
+    }
   }
 
   return (
@@ -90,6 +109,7 @@ export default async function LikesPage({ params }: Props) {
         >
           <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
         </Link>
+
         <h1 className="text-xl font-bold">Liked by</h1>
       </div>
 

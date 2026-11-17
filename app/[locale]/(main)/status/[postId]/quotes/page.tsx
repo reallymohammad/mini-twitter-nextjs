@@ -24,25 +24,57 @@ export default async function QuotesPage({ params }: QuotesPageProps) {
   const currentUser = await getCurrentUser();
   const viewerId = currentUser?.id;
 
-  const visiblePostWhere = getVisiblePostWhere(viewerId);
+  // برای نمایش فهرست کوت‌ها، پست اصلی نباید صرفاً به این دلیل که
+  // بیننده نویسنده‌اش را بلاک کرده از نتیجه حذف شود.
+  const visibleOriginalPostWhere = getVisiblePostWhere(viewerId, {
+    includeBlockedByViewer: true,
+  });
 
   const originalPost = await prisma.post.findFirst({
     where: {
-      AND: [visiblePostWhere, { id: postId }],
+      AND: [visibleOriginalPostWhere, { id: postId }],
     },
     select: { id: true },
   });
 
-  if (!originalPost) notFound();
+  if (!originalPost) {
+    notFound();
+  }
+
+  // این شرط عمداً مستقل است: خود نویسندگان کوت‌ها اگر یکی از دو طرف
+  // بلاک داشته باشند، در فهرست کوت‌ها نمایش داده نمی‌شوند.
+  const visibleQuoteAuthorWhere = viewerId
+    ? {
+        blockedBy: {
+          none: { blockerId: viewerId },
+        },
+        blocking: {
+          none: { blockedId: viewerId },
+        },
+      }
+    : {};
 
   const quotes = await prisma.post.findMany({
     where: {
       AND: [
-        visiblePostWhere,
+        // پست کوت‌شده باید خودش برای بیننده قابل‌مشاهده باشد.
+        // چون این پست متعلق به نویسندهٔ کوت است، بلاک‌شدن آن نویسنده
+        // توسط بیننده همچنان باعث فیلترشدن کوت می‌شود.
+        getVisiblePostWhere(viewerId),
+
         { quoteOfId: postId },
+
+        // فیلتر صریح نویسندهٔ کوت از هر دو سمت بلاک.
+        {
+          author: {
+            is: visibleQuoteAuthorWhere,
+          },
+        },
+
+        // پست اصلیِ کوت‌شده: بلاکِ بیننده نباید آن را از کوئری حذف کند.
         {
           quoteOf: {
-            is: visiblePostWhere,
+            is: visibleOriginalPostWhere,
           },
         },
       ],

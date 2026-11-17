@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { normalizeQuery, toWebSearchParam } from "./postgres";
+import { normalizeQuery } from "./postgres";
 
 const PAGE_SIZE = 20;
 const USERS_PAGE_SIZE = 20;
@@ -56,7 +56,7 @@ export type SearchPostResult = {
 export type LatestCursor = { createdAt: string; id: string } | null;
 export type TopCursor = { rank: number; id: string } | null;
 
-// ---------- Raw row shape returned by SQL ----------
+// ---------- Raw row shapes returned by SQL ----------
 
 type RawPostRow = {
   id: string;
@@ -86,6 +86,18 @@ type RawPostRow = {
   isReposted: boolean;
   isBookmarked: boolean;
   rank?: number;
+};
+
+type RawUserRow = {
+  id: string;
+  username: string;
+  fullName: string;
+  avatarUrl: string | null;
+  badge: Badge;
+  bio: string | null;
+  followersCount: number;
+  isFollowedByViewer: boolean;
+  similarity: number;
 };
 
 function mapRow(row: RawPostRow): SearchPostResult {
@@ -134,21 +146,102 @@ function mapRow(row: RawPostRow): SearchPostResult {
 
 // ---------- Shared SQL fragments ----------
 
-function quoteJoins() {
+// بررسی دسترسی به پست‌های حساب عمومی/خصوصی.
+// این تابع عمداً بلاک و میوت را بررسی نمی‌کند، چون در quote/reply joins هم استفاده می‌شود.
+function visibleAuthorCondition(
+  viewerId: string | null,
+  authorIdColumn: Prisma.Sql,
+  isPrivateColumn: Prisma.Sql,
+): Prisma.Sql {
+  if (!viewerId) {
+    return Prisma.sql`${isPrivateColumn} = false`;
+  }
+
   return Prisma.sql`
-    LEFT JOIN public."Post" rt_post ON rt_post.id = p."replyToId"
-    LEFT JOIN public."User" rt      ON rt.id = rt_post."authorId"
-    LEFT JOIN public."Post" qp      ON qp.id = p."quoteOfId" AND qp."deletedAt" IS NULL
-    LEFT JOIN public."User" qa      ON qa.id = qp."authorId"
+    (
+      ${isPrivateColumn} = false
+      OR ${authorIdColumn} = ${viewerId}
+      OR EXISTS (
+        SELECT 1
+        FROM public."Follow" visibility_follow
+        WHERE visibility_follow."followerId" = ${viewerId}
+          AND visibility_follow."followingId" = ${authorIdColumn}
+          AND visibility_follow.status = 'ACCEPTED'
+      )
+    )
+  `;
+}
+
+// حذف نویسندگانی که بیننده یا آن‌ها یکدیگر را بلاک کرده‌اند.
+// میوت فقط در جهت viewer → author اعمال می‌شود.
+function excludedPostAuthorCondition(
+  viewerId: string | null,
+  authorIdColumn: Prisma.Sql,
+): Prisma.Sql {
+  if (!viewerId) {
+    return Prisma.sql`true`;
+  }
+
+  return Prisma.sql`
+    NOT EXISTS (
+      SELECT 1
+      FROM public."Block" blk
+      WHERE
+        (
+          blk."blockerId" = ${viewerId}
+          AND blk."blockedId" = ${authorIdColumn}
+        )
+        OR
+        (
+          blk."blockerId" = ${authorIdColumn}
+          AND blk."blockedId" = ${viewerId}
+        )
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public."Mute" mt
+      WHERE mt."muterId" = ${viewerId}
+        AND mt."mutedId" = ${authorIdColumn}
+    )
+  `;
+}
+
+function quoteJoins(viewerId: string | null) {
+  return Prisma.sql`
+    LEFT JOIN public."Post" rt_post
+      ON rt_post.id = p."replyToId"
+     AND rt_post."deletedAt" IS NULL
+
+    LEFT JOIN public."User" rt
+      ON rt.id = rt_post."authorId"
+     AND rt."deletedAt" IS NULL
+     AND ${visibleAuthorCondition(
+       viewerId,
+       Prisma.sql`rt.id`,
+       Prisma.sql`rt."isPrivate"`,
+     )}
+
+    LEFT JOIN public."Post" qp
+      ON qp.id = p."quoteOfId"
+     AND qp."deletedAt" IS NULL
+
+    LEFT JOIN public."User" qa
+      ON qa.id = qp."authorId"
+     AND qa."deletedAt" IS NULL
+     AND ${visibleAuthorCondition(
+       viewerId,
+       Prisma.sql`qa.id`,
+       Prisma.sql`qa."isPrivate"`,
+     )}
   `;
 }
 
 function denormalizedCounts() {
   return Prisma.sql`
-    p."likeCount"::int     AS "likeCount",
-    p."repostCount"::int   AS "repostCount",
-    p."replyCount"::int    AS "replyCount",
-    p."bookmarkCount"::int AS "bookmarkCount"
+    p."likeCount"::int      AS "likeCount",
+    p."repostCount"::int    AS "repostCount",
+    p."replyCount"::int     AS "replyCount",
+    p."bookmarkCount"::int  AS "bookmarkCount"
   `;
 }
 
@@ -160,15 +253,18 @@ function viewerFlags(viewerId: string | null) {
       false AS "isBookmarked"
     `;
   }
+
   return Prisma.sql`
     EXISTS (
       SELECT 1 FROM public."Like" l
       WHERE l."postId" = p.id AND l."userId" = ${viewerId}
     ) AS "isLiked",
+
     EXISTS (
       SELECT 1 FROM public."Repost" rp
       WHERE rp."postId" = p.id AND rp."userId" = ${viewerId}
     ) AS "isReposted",
+
     EXISTS (
       SELECT 1 FROM public."Bookmark" bm
       WHERE bm."postId" = p.id AND bm."userId" = ${viewerId}
@@ -178,9 +274,11 @@ function viewerFlags(viewerId: string | null) {
 
 function isFollowedByViewerExpr(viewerId: string | null) {
   if (!viewerId) return Prisma.sql`false`;
+
   return Prisma.sql`
     EXISTS (
-      SELECT 1 FROM public."Follow" f
+      SELECT 1
+      FROM public."Follow" f
       WHERE f."followerId" = ${viewerId}
         AND f."followingId" = a.id
         AND f.status = 'ACCEPTED'
@@ -192,27 +290,49 @@ function commonPostSelect(viewerId: string | null) {
   return Prisma.sql`
     p.id,
     p.content,
-    p."mediaUrls"   AS "mediaUrls",
-    p."createdAt"   AS "createdAt",
+    p."mediaUrls" AS "mediaUrls",
+    p."createdAt" AS "createdAt",
+
     CASE
-      WHEN p."quoteOfId"  IS NOT NULL THEN 'QUOTE'
-      WHEN p."replyToId"  IS NOT NULL THEN 'REPLY'
+      WHEN p."quoteOfId" IS NOT NULL THEN 'QUOTE'
+      WHEN p."replyToId" IS NOT NULL THEN 'REPLY'
       ELSE 'POST'
-    END::text        AS type,
-    p."replyToId"   AS "replyToId",
-    rt.username      AS "replyToUsername",
-    a.id             AS "authorId",
-    a.username       AS "authorUsername",
-    a."fullName"     AS "authorFullName",
-    a."avatarUrl"    AS "authorAvatarUrl",
-    a.badge          AS "authorBadge",
+    END::text AS type,
+
+    CASE
+      WHEN rt.id IS NOT NULL THEN p."replyToId"
+      ELSE NULL
+    END AS "replyToId",
+
+    rt.username AS "replyToUsername",
+
+    a.id AS "authorId",
+    a.username AS "authorUsername",
+    a."fullName" AS "authorFullName",
+    a."avatarUrl" AS "authorAvatarUrl",
+    a.badge AS "authorBadge",
+
     ${isFollowedByViewerExpr(viewerId)} AS "isFollowedByViewer",
-    qp.id            AS "quoteId",
-    qp.content       AS "quoteContent",
-    qp."createdAt"   AS "quoteCreatedAt",
-    qa.username      AS "quoteAuthorUsername",
-    qa."fullName"    AS "quoteAuthorFullName",
-    qa."avatarUrl"   AS "quoteAuthorAvatarUrl",
+
+    CASE
+      WHEN qa.id IS NOT NULL THEN qp.id
+      ELSE NULL
+    END AS "quoteId",
+
+    CASE
+      WHEN qa.id IS NOT NULL THEN qp.content
+      ELSE NULL
+    END AS "quoteContent",
+
+    CASE
+      WHEN qa.id IS NOT NULL THEN qp."createdAt"
+      ELSE NULL
+    END AS "quoteCreatedAt",
+
+    qa.username AS "quoteAuthorUsername",
+    qa."fullName" AS "quoteAuthorFullName",
+    qa."avatarUrl" AS "quoteAuthorAvatarUrl",
+
     ${denormalizedCounts()},
     ${viewerFlags(viewerId)}
   `;
@@ -227,25 +347,38 @@ export async function searchPostsLatest(params: {
   limit?: number;
 }): Promise<{ items: SearchPostResult[]; nextCursor: LatestCursor }> {
   const { query, viewerId, cursor = null, limit = PAGE_SIZE } = params;
-const q = normalizeQuery(query);
+  const q = normalizeQuery(query);
 
   if (!q) {
     return { items: [], nextCursor: null };
   }
 
   const cursorCondition = cursor
-    ? Prisma.sql`AND (p."createdAt", p.id) < (${cursor.createdAt}::timestamptz, ${cursor.id})`
+    ? Prisma.sql`
+        AND (p."createdAt", p.id)
+          < (${cursor.createdAt}::timestamptz, ${cursor.id})
+      `
     : Prisma.empty;
 
   const rows = await prisma.$queryRaw<RawPostRow[]>`
     SELECT
       ${commonPostSelect(viewerId)}
     FROM public."Post" p
-    JOIN  public."User" a ON a.id = p."authorId"
-    ${quoteJoins()}
+    JOIN public."User" a
+      ON a.id = p."authorId"
+    ${quoteJoins(viewerId)}
     WHERE p."deletedAt" IS NULL
       AND a."deletedAt" IS NULL
-      AND p."searchVector" @@ websearch_to_tsquery('public.y_search'::regconfig, ${q})
+      AND ${visibleAuthorCondition(
+        viewerId,
+        Prisma.sql`a.id`,
+        Prisma.sql`a."isPrivate"`,
+      )}
+      AND ${excludedPostAuthorCondition(viewerId, Prisma.sql`a.id`)}
+      AND p."searchVector" @@ websearch_to_tsquery(
+        'public.y_search'::regconfig,
+        ${q}
+      )
       ${cursorCondition}
     ORDER BY p."createdAt" DESC, p.id DESC
     LIMIT ${limit + 1}
@@ -264,7 +397,7 @@ const q = normalizeQuery(query);
   };
 }
 
-// ---------- Top tab: cursor on (rank, id) using ts_rank ----------
+// ---------- Top tab: cursor on (rank, id) ----------
 
 export async function searchPostsTop(params: {
   query: string;
@@ -273,14 +406,16 @@ export async function searchPostsTop(params: {
   limit?: number;
 }): Promise<{ items: SearchPostResult[]; nextCursor: TopCursor }> {
   const { query, viewerId, cursor = null, limit = PAGE_SIZE } = params;
-const q = normalizeQuery(query);
+  const q = normalizeQuery(query);
 
   if (!q) {
     return { items: [], nextCursor: null };
   }
 
   const cursorCondition = cursor
-    ? Prisma.sql`AND (sub.rank, sub.id) < (${cursor.rank}::real, ${cursor.id})`
+    ? Prisma.sql`
+        AND (sub.rank, sub.id) < (${cursor.rank}::real, ${cursor.id})
+      `
     : Prisma.empty;
 
   const rows = await prisma.$queryRaw<RawPostRow[]>`
@@ -288,15 +423,29 @@ const q = normalizeQuery(query);
     FROM (
       SELECT
         ${commonPostSelect(viewerId)},
-        ts_rank(p."searchVector", websearch_to_tsquery('public.y_search'::regconfig, ${q})) AS rank
+        ts_rank(
+          p."searchVector",
+          websearch_to_tsquery('public.y_search'::regconfig, ${q})
+        ) AS rank
       FROM public."Post" p
-      JOIN  public."User" a ON a.id = p."authorId"
-      ${quoteJoins()}
+      JOIN public."User" a
+        ON a.id = p."authorId"
+      ${quoteJoins(viewerId)}
       WHERE p."deletedAt" IS NULL
         AND a."deletedAt" IS NULL
-        AND p."searchVector" @@ websearch_to_tsquery('public.y_search'::regconfig, ${q})
+        AND ${visibleAuthorCondition(
+          viewerId,
+          Prisma.sql`a.id`,
+          Prisma.sql`a."isPrivate"`,
+        )}
+        AND ${excludedPostAuthorCondition(viewerId, Prisma.sql`a.id`)}
+        AND p."searchVector" @@ websearch_to_tsquery(
+          'public.y_search'::regconfig,
+          ${q}
+        )
     ) sub
-    WHERE true ${cursorCondition}
+    WHERE true
+      ${cursorCondition}
     ORDER BY sub.rank DESC, sub.id DESC
     LIMIT ${limit + 1}
   `;
@@ -326,18 +475,6 @@ export type SearchUserResult = {
   similarity: number;
 };
 
-type RawUserRow = {
-  id: string;
-  username: string;
-  fullName: string;
-  avatarUrl: string | null;
-  badge: Badge;
-  bio: string | null;
-  followersCount: number;
-  isFollowedByViewer: boolean;
-  similarity: number;
-};
-
 export async function searchUsers(params: {
   query: string;
   viewerId: string | null;
@@ -355,28 +492,52 @@ export async function searchUsers(params: {
     SELECT
       u.id,
       u.username,
-      u."fullName"        AS "fullName",
-      u."avatarUrl"       AS "avatarUrl",
+      u."fullName" AS "fullName",
+      u."avatarUrl" AS "avatarUrl",
       u.badge,
       u.bio,
-      u."followersCount"  AS "followersCount",
+      u."followersCount" AS "followersCount",
+
       ${
         viewerId
           ? Prisma.sql`
               EXISTS (
-                SELECT 1 FROM public."Follow" f
+                SELECT 1
+                FROM public."Follow" f
                 WHERE f."followerId" = ${viewerId}
                   AND f."followingId" = u.id
                   AND f.status = 'ACCEPTED'
-              )`
+              )
+            `
           : Prisma.sql`false`
       } AS "isFollowedByViewer",
+
       GREATEST(
         similarity(lower(u.username), ${q}),
         similarity(lower(COALESCE(u."fullName", '')), ${q})
       )::float8 AS similarity
+
     FROM public."User" u
     WHERE u."deletedAt" IS NULL
+      AND ${visibleAuthorCondition(
+        viewerId,
+        Prisma.sql`u.id`,
+        Prisma.sql`u."isPrivate"`,
+      )}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public."Block" blk
+        WHERE
+          (
+            blk."blockerId" = ${viewerId ?? ""}
+            AND blk."blockedId" = u.id
+          )
+          OR
+          (
+            blk."blockerId" = u.id
+            AND blk."blockedId" = ${viewerId ?? ""}
+          )
+      )
       AND (
         lower(u.username) ILIKE '%' || ${q} || '%'
         OR lower(u."fullName") ILIKE '%' || ${q} || '%'
@@ -389,5 +550,9 @@ export async function searchUsers(params: {
   `;
 
   const hasMore = rows.length > limit;
-  return { items: rows.slice(0, limit), hasMore };
+
+  return {
+    items: rows.slice(0, limit),
+    hasMore,
+  };
 }

@@ -15,12 +15,26 @@ export async function POST(_: NextRequest, { params }: Context) {
 
   try {
     const found = await prisma.$transaction(async (tx) => {
+      // ۱. پیدا کردن پست و نویسنده آن
       const post = await tx.post.findFirst({
         where: { id: postId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, authorId: true },
       });
 
-      if (!post) return false;
+      if (!post) return "not-found" as const;
+
+      // ۲. بررسی بلاک دوطرفه بین لایک‌کننده و نویسنده پست
+      if (post.authorId !== user.id) {
+        const block = await tx.block.findFirst({
+          where: {
+            OR: [
+              { blockerId: user.id, blockedId: post.authorId },
+              { blockerId: post.authorId, blockedId: user.id },
+            ],
+          },
+        });
+        if (block) return "forbidden" as const;
+      }
 
       await tx.like.create({
         data: { userId: user.id, postId },
@@ -31,16 +45,18 @@ export async function POST(_: NextRequest, { params }: Context) {
         data: { likeCount: { increment: 1 } },
       });
 
-      return true;
+      return "liked" as const;
     });
 
-    if (!found) {
+    if (found === "not-found") {
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+    if (found === "forbidden") {
+      return NextResponse.json({ error: "Action blocked" }, { status: 403 });
     }
 
     return NextResponse.json({ liked: true });
   } catch (error) {
-    // لایک تکراری نباید شمارنده را دوباره افزایش دهد.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -50,41 +66,4 @@ export async function POST(_: NextRequest, { params }: Context) {
 
     throw error;
   }
-}
-
-export async function DELETE(_: NextRequest, { params }: Context) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: postId } = await params;
-
-  const found = await prisma.$transaction(async (tx) => {
-    const post = await tx.post.findFirst({
-      where: { id: postId, deletedAt: null },
-      select: { id: true },
-    });
-
-    if (!post) return false;
-
-    const deleted = await tx.like.deleteMany({
-      where: { userId: user.id, postId },
-    });
-
-    if (deleted.count > 0) {
-      await tx.post.updateMany({
-        where: { id: postId, likeCount: { gt: 0 } },
-        data: { likeCount: { decrement: 1 } },
-      });
-    }
-
-    return true;
-  });
-
-  if (!found) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
-  }
-
-  return NextResponse.json({ liked: false });
 }

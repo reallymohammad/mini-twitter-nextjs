@@ -63,7 +63,7 @@ export default async function FollowListPage({
 
   if (!profileUser) notFound();
 
-  // فقط فالوهای تأییدشده و کاربران حذف‌نشده در شمارش لحاظ می‌شوند.
+  // افراد بلاک‌شده از لیست شخص ثالث حذف نمی‌شوند.
   const baseWhere: Prisma.FollowWhereInput =
     kind === "followers"
       ? {
@@ -189,8 +189,13 @@ export default async function FollowListPage({
 
   const ids = listedUsers.map((user) => user.id);
 
-  // اطلاعات لازم برای دکمهٔ Follow و برچسب Follows you؛ بدون N+1 query.
-  const [viewerFollows, followersOfViewer] =
+  // وضعیت فالو و بلاک دوطرفه برای اعضای همین صفحه؛ بدون N+1 query.
+  const [
+    viewerFollows,
+    followersOfViewer,
+    viewerBlocks,
+    blocksViewer,
+  ] =
     currentUser && ids.length > 0
       ? await Promise.all([
           prisma.follow.findMany({
@@ -209,8 +214,22 @@ export default async function FollowListPage({
             },
             select: { followerId: true },
           }),
+          prisma.block.findMany({
+            where: {
+              blockerId: currentUser.id,
+              blockedId: { in: ids },
+            },
+            select: { blockedId: true },
+          }),
+          prisma.block.findMany({
+            where: {
+              blockerId: { in: ids },
+              blockedId: currentUser.id,
+            },
+            select: { blockerId: true },
+          }),
         ])
-      : [[], []];
+      : [[], [], [], []];
 
   const followingIds = new Set(
     viewerFollows.map((follow) => follow.followingId)
@@ -218,11 +237,19 @@ export default async function FollowListPage({
   const followsYouIds = new Set(
     followersOfViewer.map((follow) => follow.followerId)
   );
+  const blockedByViewerIds = new Set(
+    viewerBlocks.map((block) => block.blockedId)
+  );
+  const hasBlockedViewerIds = new Set(
+    blocksViewer.map((block) => block.blockerId)
+  );
 
   const items: FollowListItem[] = listedUsers.map((user) => ({
     ...user,
     isFollowing: followingIds.has(user.id),
     followsYou: followsYouIds.has(user.id),
+    isBlockedByViewer: blockedByViewerIds.has(user.id),
+    hasBlockedViewer: hasBlockedViewerIds.has(user.id),
   }));
 
   const path = `/${locale}/${encodeURIComponent(profileUser.username)}/${kind}`;
@@ -248,15 +275,17 @@ export default async function FollowListPage({
         </div>
       </div>
 
-      <FollowListSearch
-        items={items}
-        mode={mode}
-        initialQuery={query}
-        locale={locale}
-        profileUsername={profileUser.username}
-        kind={kind}
-        currentUserId={currentUser?.id}
-      />
+     <FollowListSearch
+  items={items}
+  mode={mode}
+  initialQuery={query}
+  locale={locale}
+  profileUsername={profileUser.username}
+  kind={kind}
+  page={page}
+  currentUserId={currentUser?.id}
+/>
+
 
       {mode === "server" && (page > 1 || hasMore) && (
         <nav

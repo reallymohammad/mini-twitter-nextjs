@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { AlertCircle, BadgeCheck, Lock } from "lucide-react";
 import { Badge } from "@prisma/client";
 import { useTranslations } from "next-intl";
+
+import BlockedPostPlaceholder from "./BlockedPostPlaceholder";
 
 interface QuotedAuthor {
   id: string;
@@ -14,6 +17,8 @@ interface QuotedAuthor {
   avatarUrl: string | null;
   badge?: Badge;
   isPrivate?: boolean;
+  blockedBy?: Array<{ blockerId: string }>;
+  blocking?: Array<{ blockedId: string }>;
 }
 
 interface QuotedPostData {
@@ -58,15 +63,8 @@ export default function QuotedPostCard({
 }: QuotedPostCardProps) {
   const router = useRouter();
   const t = useTranslations("Post");
+  const [showBlockedContent, setShowBlockedContent] = useState(false);
 
-  /*
-   * quoteOfId هنوز روی پست والد وجود دارد، بنابراین PostCard این
-   * کامپوننت را رندر می‌کند؛ ولی سرور quoteOf را برای موارد زیر null می‌کند:
-   *
-   * 1. پست کوت‌شده حذف شده باشد.
-   * 2. نویسنده بعداً خصوصی شده باشد.
-   * 3. بیننده مالک یا فالوور تأییدشده نباشد.
-   */
   if (!quotedPost || quotedPost.deletedAt != null) {
     return (
       <div
@@ -77,10 +75,24 @@ export default function QuotedPostCard({
           className="size-4 shrink-0 text-muted-foreground/80"
           aria-hidden="true"
         />
+        <span className="font-medium">{t("postUnavailable")}</span>
+      </div>
+    );
+  }
 
-        <span className="font-medium">
-          {t("postUnavailable")}
-        </span>
+  const isBlockedByViewer = Boolean(quotedPost.author.blockedBy?.length);
+  const isBlockingViewer = Boolean(quotedPost.author.blocking?.length);
+
+  if (isBlockingViewer) {
+    return null;
+  }
+
+  if (isBlockedByViewer && !showBlockedContent) {
+    return (
+      <div className="mt-2.5">
+        <BlockedPostPlaceholder
+          onView={() => setShowBlockedContent(true)}
+        />
       </div>
     );
   }
@@ -136,9 +148,7 @@ export default function QuotedPostCard({
             </span>
           </div>
 
-          <span className="shrink-0 text-xs text-muted-foreground">
-            ·
-          </span>
+          <span className="shrink-0 text-xs text-muted-foreground">·</span>
 
           <span className="shrink-0 text-xs text-muted-foreground">
             {formatDistanceToNow(new Date(createdAt), {

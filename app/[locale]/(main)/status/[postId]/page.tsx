@@ -1,8 +1,6 @@
-// app/[locale]/(main)/status/[postId]/page.tsx
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { Prisma, FollowStatus } from "@prisma/client";
-import { Lock } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
@@ -53,6 +51,22 @@ export default async function PostDetailPage({ params }: PageProps) {
           select: { followerId: true },
         }
       : false,
+    ...(currentUser
+      ? {
+          blockedBy: {
+            where: { blockerId: currentUser.id },
+            select: { blockerId: true },
+          },
+          blocking: {
+            where: { blockedId: currentUser.id },
+            select: { blockedId: true },
+          },
+          mutedBy: {
+            where: { muterId: currentUser.id },
+            select: { muterId: true },
+          },
+        }
+      : {}),
   } as const satisfies Prisma.UserSelect;
 
   const postInclude = {
@@ -109,26 +123,35 @@ export default async function PostDetailPage({ params }: PageProps) {
 
   type LoadedPost = NonNullable<typeof post>;
 
-  // فقط مالک، فالوور تأییدشده یا همه در صورت عمومی‌بودن اکانت.
+  const isBlockedByViewer = (author: {
+    blockedBy?: ReadonlyArray<{ blockerId: string }>;
+  }) => Boolean(author.blockedBy?.length);
+
+  const isBlockingViewer = (author: {
+    blocking?: ReadonlyArray<{ blockedId: string }>;
+  }) => Boolean(author.blocking?.length);
+
   const canViewAuthor = (author: {
     id: string;
     isPrivate: boolean;
     followers?: ReadonlyArray<{ followerId: string }>;
-  }) =>
-    !author.isPrivate ||
-    author.id === currentUser?.id ||
-    Boolean(author.followers?.length);
+    blockedBy?: ReadonlyArray<{ blockerId: string }>;
+    blocking?: ReadonlyArray<{ blockedId: string }>;
+  }) => {
+    if (isBlockingViewer(author)) return false;
+    if (isBlockedByViewer(author)) return true;
 
-  // محتوای کوتِ حذف‌شده یا غیرمجاز را به PostCard کلاینتی نمی‌فرستیم.
-  // quoteOfId دست‌نخورده می‌ماند تا بتوان placeholder را نشان داد.
+    return (
+      !author.isPrivate ||
+      author.id === currentUser?.id ||
+      Boolean(author.followers?.length)
+    );
+  };
+
   const sanitizeQuote = (item: LoadedPost): LoadedPost => {
     const quoted = item.quoteOf;
 
-    if (
-      !quoted ||
-      quoted.deletedAt !== null ||
-      !canViewAuthor(quoted.author)
-    ) {
+    if (!quoted || quoted.deletedAt !== null || !canViewAuthor(quoted.author)) {
       return { ...item, quoteOf: null };
     }
 
@@ -139,23 +162,8 @@ export default async function PostDetailPage({ params }: PageProps) {
     return (
       <div className="flex min-h-screen w-full max-w-2xl flex-col border-r border-border">
         {header}
-        <div className="flex flex-col items-center justify-center p-12 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent/30 text-muted-foreground">
-            <Lock className="h-8 w-8" />
-          </div>
-          <h2 className="text-xl font-bold text-foreground">
-            These posts are protected
-          </h2>
-          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Only confirmed followers have access to @{post.author.username}
-            &apos;s posts and replies.
-          </p>
-          <Link
-            href={`/${locale}/${post.author.username}`}
-            className="mt-6 rounded-full bg-foreground px-5 py-2 text-sm font-semibold text-background transition hover:opacity-90"
-          >
-            View profile
-          </Link>
+        <div className="p-4">
+          <DeletedPostPlaceholder className="justify-center py-6" />
         </div>
       </div>
     );
@@ -223,7 +231,9 @@ export default async function PostDetailPage({ params }: PageProps) {
   const earlierAncestorId = currentTargetReplyId;
   ancestors.reverse();
 
-  const replies = await repliesPromise;
+  const replies = (await repliesPromise).filter((reply) =>
+    canViewAuthor(reply.author)
+  );
 
   const repostsCount = post.repostCount || post._count.reposts;
   const quotesCount = post._count.quotes;
@@ -346,7 +356,7 @@ export default async function PostDetailPage({ params }: PageProps) {
             </div>
           )}
 
-          {currentUser && (
+          {currentUser && !isBlockedByViewer(post.author) && (
             <div className="border-b border-border p-3">
               <Composer
                 currentUser={{

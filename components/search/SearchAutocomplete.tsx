@@ -53,23 +53,28 @@ function extractItems<T>(value: unknown): T[] {
   return [];
 }
 
+function buildSearchReturnPath(locale: string, query: string): string {
+  const params = new URLSearchParams();
+  params.set("q", query.trim());
+  params.set("tab", "top");
+
+  return `/${locale}/search?${params.toString()}`;
+}
+
 export function SearchAutocomplete({
   locale,
 }: SearchAutocompleteProps) {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
   const [results, setResults] = useState<SearchResults>({
     users: [],
     posts: [],
   });
 
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // بستن منو هنگام کلیک خارج از کامپوننت
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -87,15 +92,11 @@ export function SearchAutocomplete({
     };
   }, []);
 
-  // جستجوی زنده با Debounce و مدیریت AbortController
   useEffect(() => {
     const trimmed = query.trim();
 
     if (!trimmed) {
-      setResults({
-        users: [],
-        posts: [],
-      });
+      setResults({ users: [], posts: [] });
       setIsLoading(false);
       return;
     }
@@ -109,21 +110,19 @@ export function SearchAutocomplete({
           `/api/search?q=${encodeURIComponent(trimmed)}&type=all&limit=4`,
           {
             signal: controller.signal,
-            headers: {
-              Accept: "application/json",
-            },
+            headers: { Accept: "application/json" },
             cache: "no-store",
-          }
+          },
         );
 
         const responseText = await response.text();
 
         if (!response.ok) {
-          console.error(`[Search API Error] HTTP ${response.status}:`, responseText);
-          setResults({
-            users: [],
-            posts: [],
-          });
+          console.error(
+            `[Search API Error] HTTP ${response.status}:`,
+            responseText,
+          );
+          setResults({ users: [], posts: [] });
           return;
         }
 
@@ -133,18 +132,12 @@ export function SearchAutocomplete({
           data = JSON.parse(responseText);
         } catch {
           console.error("[Search API] Invalid JSON received:", responseText);
-          setResults({
-            users: [],
-            posts: [],
-          });
+          setResults({ users: [], posts: [] });
           return;
         }
 
         if (!data || typeof data !== "object") {
-          setResults({
-            users: [],
-            posts: [],
-          });
+          setResults({ users: [], posts: [] });
           return;
         }
 
@@ -153,26 +146,17 @@ export function SearchAutocomplete({
           posts?: unknown;
         };
 
-        const users = extractItems<SearchUser>(responseData.users);
-        const posts = extractItems<SearchPost>(responseData.posts);
-
         setResults({
-          users,
-          posts,
+          users: extractItems<SearchUser>(responseData.users),
+          posts: extractItems<SearchPost>(responseData.posts),
         });
       } catch (error) {
-        if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
-        ) {
+        if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
 
         console.error("[Search API Fetch Exception]:", error);
-        setResults({
-          users: [],
-          posts: [],
-        });
+        setResults({ users: [], posts: [] });
       } finally {
         if (!controller.signal.aborted) {
           setIsLoading(false);
@@ -193,9 +177,15 @@ export function SearchAutocomplete({
     if (!trimmed) return;
 
     setIsOpen(false);
-    router.push(`/${locale}/search?q=${encodeURIComponent(trimmed)}`);
+    router.push(
+      `/${locale}/search?q=${encodeURIComponent(trimmed)}&tab=top`,
+    );
   };
 
+  const trimmedQuery = query.trim();
+  const searchReturnPath = trimmedQuery
+    ? buildSearchReturnPath(locale, trimmedQuery)
+    : null;
   const hasResults = results.users.length > 0 || results.posts.length > 0;
 
   return (
@@ -211,9 +201,7 @@ export function SearchAutocomplete({
             setIsOpen(true);
           }}
           onFocus={() => {
-            if (query.trim()) {
-              setIsOpen(true);
-            }
+            if (trimmedQuery) setIsOpen(true);
           }}
           placeholder="جستجو در Y..."
           className="h-11 rounded-full border-none bg-muted/60 ps-10 pe-9 text-sm transition-all focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -228,10 +216,7 @@ export function SearchAutocomplete({
             onClick={() => {
               setQuery("");
               setIsOpen(false);
-              setResults({
-                users: [],
-                posts: [],
-              });
+              setResults({ users: [], posts: [] });
             }}
             className="absolute end-3.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
           >
@@ -240,15 +225,15 @@ export function SearchAutocomplete({
         ) : null}
       </form>
 
-      {isOpen && query.trim().length > 0 && (
-        <div className="absolute inset-x-0 top-full z-[100] mt-2 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl divide-y divide-border/40">
+      {isOpen && trimmedQuery.length > 0 && (
+        <div className="absolute inset-x-0 top-full z-[100] mt-2 divide-y divide-border/40 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
           <Link
-            href={`/${locale}/search?q=${encodeURIComponent(query.trim())}`}
+            href={`/${locale}/search?q=${encodeURIComponent(trimmedQuery)}&tab=top`}
             onClick={() => setIsOpen(false)}
             className="flex items-center gap-3 p-3 text-sm font-medium text-primary transition-colors hover:bg-accent/60"
           >
             <Search className="h-4 w-4 shrink-0" />
-            <span className="truncate">جستجوی «{query}»</span>
+            <span className="truncate">جستجوی «{trimmedQuery}»</span>
           </Link>
 
           {isLoading && (
@@ -267,15 +252,23 @@ export function SearchAutocomplete({
               {results.users.map((user) => (
                 <Link
                   key={user.id}
-                  href={`/${locale}/${user.username}`}
+                  href={
+                    searchReturnPath
+                      ? {
+                          pathname: `/${locale}/${encodeURIComponent(user.username)}`,
+                          query: {
+                            from: `${searchReturnPath}#search-user-${user.id}`,
+                          },
+                        }
+                      : `/${locale}/${encodeURIComponent(user.username)}`
+                  }
                   onClick={() => setIsOpen(false)}
                   className="flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-accent"
                 >
-                 <Avatar
-  name={user.fullName || user.username || "User"}
-  size={36}
-/>
-
+                  <Avatar
+                    name={user.fullName || user.username || "User"}
+                    size={36}
+                  />
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold leading-none">
@@ -307,17 +300,10 @@ export function SearchAutocomplete({
                     {post.author?.fullName ||
                       post.author?.username ||
                       "کاربر"}
-
                     {post.author?.username && (
-                      <>
-                        {" "}
-                        <span className="dir-ltr">
-                          @{post.author.username}
-                        </span>
-                      </>
+                      <span className="dir-ltr"> @{post.author.username}</span>
                     )}
                   </p>
-
                   <p className="line-clamp-1 text-sm text-foreground/90">
                     {post.content || ""}
                   </p>
@@ -328,7 +314,7 @@ export function SearchAutocomplete({
 
           {!isLoading && !hasResults && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              هیچ نتیجه‌ای برای «{query}» پیدا نشد.
+              هیچ نتیجه‌ای برای «{trimmedQuery}» پیدا نشد.
             </div>
           )}
         </div>

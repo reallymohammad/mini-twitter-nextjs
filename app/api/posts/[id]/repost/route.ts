@@ -8,6 +8,7 @@ type Context = { params: Promise<{ id: string }> };
 
 class PostUnavailableError extends Error {}
 class PrivacyViolationError extends Error {}
+class BlockedInteractionError extends Error {}
 
 function notFoundResponse() {
   return NextResponse.json(
@@ -41,6 +42,7 @@ export async function POST(
           },
           select: {
             id: true,
+            authorId: true,
             author: {
               select: { isPrivate: true },
             },
@@ -51,13 +53,28 @@ export async function POST(
           throw new PostUnavailableError();
         }
 
-        // این محدودیت برای نویسندهٔ خود پست هم اعمال می‌شود.
+        // بررسی گارد بلاک دوطرفه (اگر نویسنده، خود کاربر نباشد)
+        if (post.authorId !== user.id) {
+          const isBlocked = await tx.block.findFirst({
+            where: {
+              OR: [
+                { blockerId: user.id, blockedId: post.authorId },
+                { blockerId: post.authorId, blockedId: user.id },
+              ],
+            },
+          });
+
+          if (isBlocked) {
+            throw new BlockedInteractionError();
+          }
+        }
+
+        // محدودیت برای اکانت خصوصی
         if (post.author.isPrivate) {
           throw new PrivacyViolationError();
         }
 
-        // اگر رکورد تکراری باشد، P2002 رخ می‌دهد و تراکنش
-        // قبل از افزایش شمارنده rollback می‌شود.
+        // ایجاد ریپست؛ در صورت تکراری بودن P2002 هندل می‌شود
         await tx.repost.create({
           data: {
             userId: user.id,
@@ -84,6 +101,16 @@ export async function POST(
   } catch (error) {
     if (error instanceof PostUnavailableError) {
       return notFoundResponse();
+    }
+
+    if (error instanceof BlockedInteractionError) {
+      return NextResponse.json(
+        {
+          error: "You cannot interact with this post due to block settings",
+          code: "BLOCKED_INTERACTION",
+        },
+        { status: 403 }
+      );
     }
 
     if (error instanceof PrivacyViolationError) {

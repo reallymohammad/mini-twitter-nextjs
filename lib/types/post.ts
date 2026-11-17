@@ -3,10 +3,20 @@ import type { Post, User } from "@prisma/client";
 
 export type PostType = "POST" | "REPLY" | "QUOTE";
 
+type BlockRelation = {
+  blockerId?: string;
+  blockedId?: string;
+};
+
 type PostAuthor = Pick<
   User,
   "id" | "username" | "fullName" | "avatarUrl" | "badge" | "isPrivate"
->;
+> & {
+  deletedAt?: Date | null;
+  blockedBy?: BlockRelation[];
+  blocking?: BlockRelation[];
+  followers?: { followerId: string }[];
+};
 
 export type PostWithRelations = Post & {
   author: PostAuthor;
@@ -23,15 +33,31 @@ export type PostWithRelations = Post & {
   isReposted?: boolean;
   isBookmarked?: boolean;
   pinnedBy: { userId: string }[];
-  replyTo?: (Post & {
-    author: PostAuthor;
-  }) | null;
-  quotedPost?: (Post & {
-    author: PostAuthor;
-    _count: { likes: number; replies: number; reposts: number; quotes?: number };
-  }) | null;
-  quoteOf?: (Post & {
-    author: PostAuthor;
-    _count?: { likes: number; replies: number; reposts: number; quotes?: number };
-  }) | null;
+  replyTo?:
+    | (Post & {
+        author: PostAuthor;
+      })
+    | null;
+  quotedPost?:
+    | (Post & {
+        author: PostAuthor;
+        _count: {
+          likes: number;
+          replies: number;
+          reposts: number;
+          quotes?: number;
+        };
+      })
+    | null;
+  quoteOf?:
+    | (Post & {
+        author: PostAuthor;
+        _count?: {
+          likes: number;
+          replies: number;
+          reposts: number;
+          quotes?: number;
+        };
+      })
+    | null;
 };

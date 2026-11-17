@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+
+const MAX_ATTEMPTS = 3;
 
 export async function POST(req: NextRequest) {
   const currentUser = await getCurrentUser();
@@ -12,7 +16,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const targetUserId = body?.targetUserId;
 
-  if (typeof targetUserId !== "string" || !targetUserId) {
+  if (typeof targetUserId !== "string" || !targetUserId.trim()) {
     return NextResponse.json(
       { error: "targetUserId is required" },
       { status: 400 }
@@ -26,55 +30,84 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const targetUser = await tx.user.findFirst({
-      where: {
-        id: targetUserId,
-        deletedAt: null,
-      },
-      select: { isPrivate: true },
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const status = await prisma.$transaction(
+        async (tx) => {
+          const targetUser = await tx.user.findFirst({
+            where: {
+              id: targetUserId,
+              deletedAt: null,
+            },
+            select: { isPrivate: true },
+          });
 
-    if (!targetUser) return null;
+          if (!targetUser) return null;
 
-    const where = {
-      followerId_followingId: {
-        followerId: currentUser.id,
-        followingId: targetUserId,
-      },
-    };
+          const where = {
+            followerId_followingId: {
+              followerId: currentUser.id,
+              followingId: targetUserId,
+            },
+          };
 
-    const existingFollow = await tx.follow.findUnique({
-      where,
-      select: { status: true },
-    });
+          const existingFollow = await tx.follow.findUnique({
+            where,
+            select: { status: true },
+          });
 
-    // فالو پذیرفته‌شده را با درخواست جدید به PENDING برنگردان.
-    const status =
-      existingFollow?.status === "ACCEPTED"
-        ? "ACCEPTED"
-        : targetUser.isPrivate
-          ? "PENDING"
-          : "ACCEPTED";
+          // فالو پذیرفته‌شده هرگز با POST تکراری به PENDING برنگردد.
+          const nextStatus =
+            existingFollow?.status === "ACCEPTED"
+              ? "ACCEPTED"
+              : targetUser.isPrivate
+                ? "PENDING"
+                : "ACCEPTED";
 
-    await tx.follow.upsert({
-      where,
-      create: {
-        followerId: currentUser.id,
-        followingId: targetUserId,
-        status,
-      },
-      update: { status },
-    });
+          const follow = await tx.follow.upsert({
+            where,
+            create: {
+              followerId: currentUser.id,
+              followingId: targetUserId,
+              status: nextStatus,
+            },
+            update: { status: nextStatus },
+            select: { status: true },
+          });
 
-    return status;
-  });
+          return follow.status;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }
+      );
 
-  if (!result) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+      if (status === null) {
+        return NextResponse.json(
+          { error: "User not found" },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({ ok: true, status });
+    } catch (error) {
+      const isRetryable =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2034" || error.code === "P2002");
+
+      if (!isRetryable) throw error;
+
+      if (attempt === MAX_ATTEMPTS) {
+        return NextResponse.json(
+          { error: "Follow conflict; please retry" },
+          { status: 409 }
+        );
+      }
+    }
   }
 
-  return NextResponse.json({ ok: true, status: result });
+  // مسیر عادی اجرا هرگز به اینجا نمی‌رسد.
+  throw new Error("Follow retry loop exited unexpectedly");
 }
 
 export async function DELETE(req: NextRequest) {
@@ -87,7 +120,7 @@ export async function DELETE(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const targetUserId = body?.targetUserId;
 
-  if (typeof targetUserId !== "string" || !targetUserId) {
+  if (typeof targetUserId !== "string" || !targetUserId.trim()) {
     return NextResponse.json(
       { error: "targetUserId is required" },
       { status: 400 }

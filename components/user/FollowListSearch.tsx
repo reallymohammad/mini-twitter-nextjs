@@ -18,6 +18,8 @@ export type FollowListItem = {
   bio: string | null;
   isFollowing: boolean;
   followsYou: boolean;
+  isBlockedByViewer: boolean;
+  hasBlockedViewer: boolean;
 };
 
 type Props = {
@@ -27,6 +29,7 @@ type Props = {
   locale: string;
   profileUsername: string;
   kind: "followers" | "following";
+  page: number;
   currentUserId?: string;
 };
 
@@ -37,6 +40,7 @@ export default function FollowListSearch({
   locale,
   profileUsername,
   kind,
+  page,
   currentUserId,
 }: Props) {
   const t = useTranslations("followList");
@@ -52,9 +56,24 @@ export default function FollowListSearch({
       ? items.filter(
           (user) =>
             user.username.toLocaleLowerCase().includes(normalizedQuery) ||
-            user.fullName.toLocaleLowerCase().includes(normalizedQuery)
+            user.fullName.toLocaleLowerCase().includes(normalizedQuery),
         )
       : items;
+
+  // مقصد برگشت: لیست فعلی همراه با جست‌وجو و صفحه‌بندی آن.
+  const returnParams = new URLSearchParams();
+  const returnQuery = mode === "client" ? query.trim() : initialQuery;
+
+  if (returnQuery) {
+    returnParams.set("q", returnQuery);
+  }
+
+  if (mode === "server" && page > 1) {
+    returnParams.set("page", String(page));
+  }
+
+  const returnSearch = returnParams.toString();
+  const returnPath = `${path}${returnSearch ? `?${returnSearch}` : ""}`;
 
   const inputClassName =
     "h-10 rounded-full border-none bg-muted/60 ps-10 pe-9 text-sm " +
@@ -140,10 +159,16 @@ export default function FollowListSearch({
           visibleItems.map((user) => (
             <div
               key={user.id}
-              className="flex items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/30"
+              id={`follow-user-${user.id}`}
+              className="scroll-mt-20 flex items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/30"
             >
               <Link
-                href={`/${locale}/${encodeURIComponent(user.username)}`}
+                href={{
+                  pathname: `/${locale}/${encodeURIComponent(user.username)}`,
+                  query: {
+                    from: `${returnPath}#follow-user-${user.id}`,
+                  },
+                }}
                 className="flex min-w-0 flex-1 items-start gap-3"
               >
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
@@ -190,6 +215,8 @@ export default function FollowListSearch({
                   targetUserId={user.id}
                   initialIsFollowing={user.isFollowing}
                   currentUserId={currentUserId}
+                  isBlockedByViewer={user.isBlockedByViewer}
+                  hasBlockedViewer={user.hasBlockedViewer}
                 />
               )}
             </div>

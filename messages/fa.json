@@ -42,7 +42,13 @@
     "deleteConfirmDescription": "این کار قابل بازگشت نیست و پست از پروفایل شما، فید دنبال‌کنندگان و نتایج جستجو حذف خواهد شد.",
     "deleteConfirmAction": "حذف",
     "deleting": "در حال حذف...",
-    "cancel": "انصراف"
+    "cancel": "انصراف",
+    "blockedAccountMessage": "شما این اکانت را بلاک کرده‌اید.",
+    "viewPostButton": "مشاهده",
+    "mute": "میوت کردن @{username}",
+    "unmute": "لغو میوت @{username}",
+    "block": "بلاک کردن @{username}",
+    "unblock": "رفع بلاک @{username}"
     
   },
 
@@ -135,7 +141,12 @@
     }
   },
   "Post": {
-  "postUnavailable": "این پست در دسترس نیست یا توسط نویسنده حذف شده است."
+  "postUnavailable": "این پست در دسترس نیست یا توسط نویسنده حذف شده است.",
+  "blockedByYou": "شما این حساب را بلاک کرده‌اید.",
+    "viewPost": "مشاهده",
+    "view": "مشاهده",
+    "mutedByYou": "شما این حساب را میوت کرده‌اید"
+
 },
 "followList": {
     "searchPlaceholder": "جست‌وجو در این لیست...",
@@ -147,7 +158,9 @@
     "requested": "درخواست‌شده",
     "followsYou": "Follows you",
         "cancelRequest": "لغو درخواست",
-            "unfollow": "لغو دنبال‌کردن"
+            "unfollow": "لغو دنبال‌کردن",
+              "blocked": "بلاک‌شده",
+  "blockedBy": "شما را بلاک کرده است"
 
 
   },
@@ -157,11 +170,23 @@
     "following": "دنبال می‌کنید",
     "requested": "درخواست‌شده",
     "unfollow": "لغو دنبال کردن",
-    "cancelRequest": "لغو درخواست"
+    "cancelRequest": "لغو درخواست",
+     "blocked": "بلاک‌شده",
+  "blockedBy": "شما را بلاک کرده است"
   },
   "profile": {
     "privateNoticeTitle": "این حساب کاربری خصوصی است",
-    "privateNoticeDesc": "برای دیدن پست‌ها و فعالیت‌ها، باید درخواست دنبال کردن بفرستید و توسط صاحب حساب تأیید شوید."
+    "privateNoticeDesc": "برای دیدن پست‌ها و فعالیت‌ها، باید درخواست دنبال کردن بفرستید و توسط صاحب حساب تأیید شوید.",
+     "back": "بازگشت",
+    "blocked": "بلاک شده",
+    "unblock": "رفع بلاک",
+    "blockAccount": "بلاک کردن",
+    "unblockAccount": "رفع بلاک",
+    "muteAccount": "بی‌صدا کردن",
+    "unmuteAccount": "لغو بی‌صدا کردن",
+    "copyLink": "کپی لینک پروفایل",
+    "blockError": "تغییر وضعیت بلاک انجام نشد.",
+    "muteError": "تغییر وضعیت میوت انجام نشد."
   }
 
 }

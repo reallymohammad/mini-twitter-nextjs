@@ -13,6 +13,8 @@ interface FollowButtonProps {
   initialIsFollowing?: boolean;
   initialStatus?: FollowStatus;
   currentUserId?: string;
+  isBlockedByViewer?: boolean;
+  hasBlockedViewer?: boolean;
 }
 
 export default function FollowButton({
@@ -20,6 +22,8 @@ export default function FollowButton({
   initialIsFollowing = false,
   initialStatus,
   currentUserId,
+  isBlockedByViewer = false,
+  hasBlockedViewer = false,
 }: FollowButtonProps) {
   const router = useRouter();
   const t = useTranslations("followButton");
@@ -31,6 +35,7 @@ export default function FollowButton({
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const isBlocked = isBlockedByViewer || hasBlockedViewer;
 
   if (!currentUserId || currentUserId === targetUserId) {
     return null;
@@ -40,7 +45,7 @@ export default function FollowButton({
     event.preventDefault();
     event.stopPropagation();
 
-    if (isLoading) return;
+    if (isLoading || isBlocked) return;
 
     setIsLoading(true);
 
@@ -73,6 +78,26 @@ export default function FollowButton({
       setIsLoading(false);
     }
   };
+
+  if (isBlockedByViewer) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="shrink-0 cursor-not-allowed rounded-full border border-border bg-muted px-4 py-1.5 text-xs font-semibold text-muted-foreground"
+      >
+        {t("blocked")}
+      </button>
+    );
+  }
+
+  if (hasBlockedViewer) {
+    return (
+      <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+        {t("blockedBy")}
+      </span>
+    );
+  }
 
   const label =
     status === "ACCEPTED"

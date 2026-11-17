@@ -151,8 +151,50 @@ export default async function ProfilePage({
     ? "You"
     : profileUser.fullName || profileUser.username;
 
+  const blocks =
+    currentUser && !isOwner
+      ? await prisma.block.findMany({
+          where: {
+            OR: [
+              { blockerId: currentUser.id, blockedId: profileUser.id },
+              { blockerId: profileUser.id, blockedId: currentUser.id },
+            ],
+          },
+          select: {
+            blockerId: true,
+            blockedId: true,
+          },
+        })
+      : [];
+
+  const hasBlockedThem = blocks.some(
+    (block) => block.blockerId === currentUser?.id,
+  );
+  const isBlockedByThem = blocks.some(
+    (block) => block.blockerId === profileUser.id,
+  );
+  const isBlocked = hasBlockedThem || isBlockedByThem;
+
+  // Mute کلید اصلی ترکیبی دارد و فیلد id ندارد.
+  const muteRecord =
+    currentUser && !isOwner
+      ? await prisma.mute.findUnique({
+          where: {
+            muterId_mutedId: {
+              muterId: currentUser.id,
+              mutedId: profileUser.id,
+            },
+          },
+          select: {
+            muterId: true,
+          },
+        })
+      : null;
+
+  const isMutedByMe = muteRecord !== null;
+
   const follow =
-    !isOwner && currentUser
+    currentUser && !isOwner && !isBlocked
       ? await prisma.follow.findUnique({
           where: {
             followerId_followingId: {
@@ -160,14 +202,17 @@ export default async function ProfilePage({
               followingId: profileUser.id,
             },
           },
-          select: { status: true },
+          select: {
+            status: true,
+          },
         })
       : null;
 
   const followStatus = follow?.status ?? null;
   const isFollowing = followStatus === "ACCEPTED";
+
   const canViewContent =
-    isOwner || !profileUser.isPrivate || isFollowing;
+    !isBlocked && (isOwner || !profileUser.isPrivate || isFollowing);
 
   let posts: FeedItem[] = [];
 
@@ -176,63 +221,62 @@ export default async function ProfilePage({
     const postInclude = getPostInclude(currentUser?.id);
 
     if (tab === "posts") {
-      const [pinnedRecords, userPosts, userReposts] =
-        await Promise.all([
-          prisma.pinnedPost.findMany({
-            where: {
-              userId: profileUser.id,
-              post: {
-                is: {
-                  deletedAt: null,
-                  ...visiblePost,
-                },
+      const [pinnedRecords, userPosts, userReposts] = await Promise.all([
+        prisma.pinnedPost.findMany({
+          where: {
+            userId: profileUser.id,
+            post: {
+              is: {
+                deletedAt: null,
+                ...visiblePost,
               },
             },
-            orderBy: { order: "asc" },
-            include: {
-              post: {
-                include: postInclude,
-              },
+          },
+          orderBy: { order: "asc" },
+          include: {
+            post: {
+              include: postInclude,
             },
-          }),
+          },
+        }),
 
-          prisma.post.findMany({
-            where: {
-              authorId: profileUser.id,
-              deletedAt: null,
-              replyToId: null,
-              ...visiblePost,
-            },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-            include: postInclude,
-          }),
+        prisma.post.findMany({
+          where: {
+            authorId: profileUser.id,
+            deletedAt: null,
+            replyToId: null,
+            ...visiblePost,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          include: postInclude,
+        }),
 
-          prisma.repost.findMany({
-            where: {
-              userId: profileUser.id,
-              post: {
-                is: {
-                  deletedAt: null,
-                  ...visiblePost,
-                  author: { is: { isPrivate: false } },
-                },
+        prisma.repost.findMany({
+          where: {
+            userId: profileUser.id,
+            post: {
+              is: {
+                deletedAt: null,
+                ...visiblePost,
+                author: { is: { isPrivate: false } },
               },
             },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-            include: {
-              post: {
-                include: postInclude,
-              },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          include: {
+            post: {
+              include: postInclude,
             },
-          }),
-        ]);
+          },
+        }),
+      ]);
 
       const pinnedItems: FeedItem[] = pinnedRecords
         .filter(
           (record) =>
-            record.post && record.post.deletedAt === null
+            record.post && record.post.deletedAt === null,
         )
         .map((record) => ({
           ...record.post,
@@ -241,7 +285,7 @@ export default async function ProfilePage({
         }));
 
       const pinnedPostIds = new Set(
-        pinnedItems.map((post) => post.id)
+        pinnedItems.map((post) => post.id),
       );
 
       const normalItems: FeedItem[] = [
@@ -257,7 +301,7 @@ export default async function ProfilePage({
             (repost) =>
               repost.post &&
               repost.post.deletedAt === null &&
-              !pinnedPostIds.has(repost.postId)
+              !pinnedPostIds.has(repost.postId),
           )
           .map((repost) => ({
             ...repost.post,
@@ -266,7 +310,7 @@ export default async function ProfilePage({
           })),
       ].sort(
         (a, b) =>
-          b.timelineDate.getTime() - a.timelineDate.getTime()
+          b.timelineDate.getTime() - a.timelineDate.getTime(),
       );
 
       posts = [...pinnedItems, ...normalItems].slice(0, 20);
@@ -329,7 +373,7 @@ export default async function ProfilePage({
       posts = data
         .filter(
           (repost) =>
-            repost.post && repost.post.deletedAt === null
+            repost.post && repost.post.deletedAt === null,
         )
         .map((repost) => ({
           ...repost.post,
@@ -361,9 +405,42 @@ export default async function ProfilePage({
         followStatus={followStatus}
         currentUserId={currentUser?.id}
         locale={locale}
+        hasBlockedThem={hasBlockedThem}
+        isBlockedByThem={isBlockedByThem}
+        isMutedByMe={isMutedByMe}
       />
 
-      {canViewContent ? (
+      {isBlocked ? (
+        <div className="border-t border-border px-4 py-16 text-center">
+          <h2 className="text-xl font-bold text-foreground">
+            {hasBlockedThem
+              ? locale === "fa"
+                ? `شما @${profileUser.username} را بلاک کرده‌اید`
+                : locale === "ar"
+                  ? `لقد حظرت @${profileUser.username}`
+                  : `You blocked @${profileUser.username}`
+              : locale === "fa"
+                ? "شما بلاک شده‌اید"
+                : locale === "ar"
+                  ? "لقد تم حظرك"
+                  : "You're blocked"}
+          </h2>
+
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+            {hasBlockedThem
+              ? locale === "fa"
+                ? "پست‌های این حساب را نخواهید دید. برای دیدن پست‌ها، ابتدا آن را رفع بلاک کنید."
+                : locale === "ar"
+                  ? "لن ترى منشورات هذا الحساب. لرؤية المنشورات، قم بإلغاء الحظر أولاً."
+                  : "You won't see their posts. Unblock this account to view posts."
+              : locale === "fa"
+                ? "شما امکان مشاهده پست‌ها، دنبال کردن یا تعامل با این کاربر را ندارید."
+                : locale === "ar"
+                  ? "لا يمكنك متابعة هذا الحساب أو رؤية منشوراته أو التفاعل معه."
+                  : "You cannot follow, see posts, or interact with this account."}
+          </p>
+        </div>
+      ) : canViewContent ? (
         <ProfileTabs
           username={username}
           locale={locale}
@@ -376,9 +453,11 @@ export default async function ProfilePage({
           <div className="mb-4 rounded-full border border-border bg-muted p-4">
             <Lock className="h-8 w-8 text-muted-foreground" />
           </div>
+
           <h2 className="text-xl font-bold tracking-tight text-foreground">
             {t("privateNoticeTitle")}
           </h2>
+
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {t("privateNoticeDesc")}
           </p>

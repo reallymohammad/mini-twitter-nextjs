@@ -40,7 +40,13 @@
     "deleteConfirmDescription": "This can't be undone and it will be removed from your profile, the timeline of any accounts that follow you, and from search results.",
     "deleteConfirmAction": "Delete",
     "deleting": "Deleting...",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "blockedAccountMessage": "You're blocked from viewing this post.",
+    "viewPostButton": "View",
+      "mute": "Mute @{username}",
+    "unmute": "Unmute @{username}",
+    "block": "Block @{username}",
+    "unblock": "Unblock @{username}"
   },
   "userMenu": {
     "loadError": "Failed to load accounts.",
@@ -128,7 +134,12 @@
     }
   },
   "Post": {
-  "postUnavailable": "This post is unavailable or was deleted by the author."
+  "postUnavailable": "This post is unavailable or was deleted by the author.",
+  "blockedByYou": "You blocked this account.",
+    "viewPost": "View",
+    "view": "View",
+        "mutedByYou": "You muted this account"
+
 },
  "followList": {
     "searchPlaceholder": "Search this list...",
@@ -140,19 +151,33 @@
     "followsYou": "Follows you",
      "requested": "Requested",
      "unfollow": "Unfollow",
-      "cancelRequest": "Cancel request"
+      "cancelRequest": "Cancel request",
+        "blocked": "Blocked",
+  "blockedBy": "Blocked you"
   },
     "followButton": {
     "follow": "Follow",
     "following": "Following",
     "requested": "Requested",
     "unfollow": "Unfollow",
-    "cancelRequest": "Cancel request"
+    "cancelRequest": "Cancel request",
+     "blocked": "Blocked",
+  "blockedBy": "Blocked you"
   },
 
   "profile": {
     "privateNoticeTitle": "These posts are protected",
-    "privateNoticeDesc": "Only confirmed followers have access to this profile's posts. Send a follow request to see them."
+    "privateNoticeDesc": "Only confirmed followers have access to this profile's posts. Send a follow request to see them.",
+     "back": "Back",
+    "blocked": "Blocked",
+    "unblock": "Unblock",
+    "blockAccount": "Block",
+    "unblockAccount": "Unblock",
+    "muteAccount": "Mute",
+    "unmuteAccount": "Unmute",
+    "copyLink": "Copy profile link",
+    "blockError": "Could not change block status.",
+    "muteError": "Could not change mute status."
   }
 
 }

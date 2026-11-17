@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,6 +13,8 @@ import PostActions from "./PostActions";
 import PostDropdown from "./PostDropdown";
 import QuotedPostCard, { QuotedBadge } from "./QuotedPostCard";
 import DeletedPostPlaceholder from "./DeletedPostPlaceholder";
+import BlockedPostPlaceholder from "./BlockedPostPlaceholder";
+import MutedPostPlaceholder from "./MutedPostPlaceholder";
 
 interface PostCardProps {
   post: PostWithRelations;
@@ -46,9 +49,9 @@ export default function PostCard({
 }: PostCardProps) {
   const router = useRouter();
   const t = useTranslations("PostDropdown");
+  const [showBlockedContent, setShowBlockedContent] = useState(false);
+  const [showMutedContent, setShowMutedContent] = useState(false);
 
-  // اگر relation از سمت سرور وجود داشته باشد، به fallback قدیمی برنمی‌گردیم؛
-  // سرور ممکن است عمداً برای حفظ حریم خصوصی quoteOf را null کرده باشد.
   const quoteRelationLoaded = Object.prototype.hasOwnProperty.call(
     post,
     "quoteOf"
@@ -59,9 +62,25 @@ export default function PostCard({
     : (post as any).quotedPost;
 
   const hasQuote = Boolean(post.quoteOfId);
-  const displayAuthor = post.author;
 
-  // نبودن relation در کوئری به‌تنهایی به معنی حذف‌شدن پست والد نیست.
+  // این cast فقط تا زمانی لازم است که mutedBy به PostWithRelations اضافه نشده باشد.
+  const displayAuthor = post.author as typeof post.author & {
+    mutedBy?: ReadonlyArray<{ muterId: string }>;
+  };
+
+  // blockedBy یعنی کاربر فعلی نویسنده را بلاک کرده است.
+  const isBlockedByViewer = Boolean(displayAuthor.blockedBy?.length);
+
+  // blocking یعنی نویسنده کاربر فعلی را بلاک کرده است.
+  const isBlockingViewer = Boolean(displayAuthor.blocking?.length);
+
+  // mutedBy یعنی کاربر فعلی نویسنده را میوت کرده است.
+  const isMutedByViewer = Boolean(displayAuthor.mutedBy?.length);
+
+  if (isBlockingViewer) {
+    return null;
+  }
+
   const replyRelationLoaded = Object.prototype.hasOwnProperty.call(
     post,
     "replyTo"
@@ -71,13 +90,10 @@ export default function PostCard({
     post.replyToId &&
       replyRelationLoaded &&
       (!post.replyTo ||
-        ("deletedAt" in post.replyTo &&
-          post.replyTo.deletedAt !== null))
+        ("deletedAt" in post.replyTo && post.replyTo.deletedAt !== null))
   );
 
-  const replyToUser = parentUnavailable
-    ? null
-    : post.replyTo?.author;
+  const replyToUser = parentUnavailable ? null : post.replyTo?.author;
 
   const isPinnedForCurrentUser = Boolean(
     currentUserId &&
@@ -85,6 +101,152 @@ export default function PostCard({
   );
 
   const showPinnedBadge = isPinnedProfile ?? isPinnedForCurrentUser;
+
+  const threadAvatar = (
+    <div className="relative w-10 shrink-0 self-stretch">
+      {connectAbove && (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute -top-3 bottom-full left-1/2 w-0.5 -translate-x-1/2 ${
+            dashedAbove
+              ? "border-s-2 border-dashed border-muted-foreground/50"
+              : "bg-border"
+          }`}
+        />
+      )}
+
+      <Link
+        href={`/${locale}/${displayAuthor.username}`}
+        onClick={(event) => event.stopPropagation()}
+        className="relative z-[1] block size-10"
+      >
+        {displayAuthor.avatarUrl ? (
+          <Image
+            src={displayAuthor.avatarUrl}
+            alt={displayAuthor.username}
+            width={40}
+            height={40}
+            className="size-10 rounded-full object-cover transition-opacity hover:opacity-90"
+          />
+        ) : (
+          <div className="flex size-10 items-center justify-center rounded-full bg-muted font-bold text-muted-foreground">
+            {displayAuthor.username[0]?.toUpperCase()}
+          </div>
+        )}
+      </Link>
+
+      {connectBelow && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-3 top-10 left-1/2 w-0.5 -translate-x-1/2 bg-border"
+        />
+      )}
+    </div>
+  );
+
+  // بلاک مقدم است؛ حتی پس از «نمایش پست بلاک‌شده»،
+  // Placeholder میوت را روی همان پست نشان نمی‌دهیم.
+  const showBlockedPlaceholder =
+    isBlockedByViewer && !showBlockedContent;
+
+  const showMutedPlaceholder =
+    !isBlockedByViewer && isMutedByViewer && !showMutedContent;
+
+  if (showBlockedPlaceholder || showMutedPlaceholder) {
+    return (
+      <article
+        className={`relative border-b border-border p-3 ${
+          focused ? "bg-accent/15" : ""
+        }`}
+      >
+        {focused && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 start-0 w-0.5 bg-indigo-500"
+          />
+        )}
+
+        {repostedByName && (
+          <div className="mb-1.5 ms-[52px] flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <Repeat2 className="size-3.5 text-green-500" />
+            <span>{repostedByName} reposted</span>
+          </div>
+        )}
+
+        {showPinnedBadge && (
+          <div className="mb-1.5 ms-[52px] flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <Pin className="size-3.5 -rotate-45 fill-current text-indigo-500" />
+            <span>{t("pinnedText")}</span>
+          </div>
+        )}
+
+        {!hideReplyContext &&
+          post.replyToId &&
+          (parentUnavailable ? (
+            <div className="mb-2 ps-[52px]">
+              <DeletedPostPlaceholder className="border-0 bg-transparent px-0 py-0 text-xs" />
+            </div>
+          ) : (
+            <div className="mb-1.5 flex min-w-0 items-center gap-1.5 ps-[52px] text-xs text-muted-foreground">
+              <MessageCircle
+                className="size-3 shrink-0"
+                aria-hidden="true"
+              />
+
+              <Link
+                href={`/${locale}/status/${post.replyToId}`}
+                onClick={(event) => event.stopPropagation()}
+                className="shrink-0 hover:underline"
+              >
+                {t("replyingToPost")}
+              </Link>
+
+              {replyToUser && (
+                <Link
+                  href={`/${locale}/${replyToUser.username}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="min-w-0 truncate text-indigo-500 hover:underline"
+                >
+                  <bdi>@{replyToUser.username}</bdi>
+                </Link>
+              )}
+            </div>
+          ))}
+
+        <div className="flex gap-3">
+          {threadAvatar}
+
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex justify-end">
+              <div onClick={(event) => event.stopPropagation()}>
+                <PostDropdown
+                  postId={post.id}
+                  authorId={displayAuthor.id}
+                  authorUsername={displayAuthor.username}
+                  currentUserId={currentUserId}
+                  isPinned={isPinnedForCurrentUser}
+                  isBlocked={isBlockedByViewer}
+                  isMuted={isMutedByViewer}
+                  redirectAfterDelete={redirectAfterDelete}
+                  fallbackHref={fallbackHref}
+                />
+              </div>
+            </div>
+
+            {showBlockedPlaceholder ? (
+              <BlockedPostPlaceholder
+                onView={() => setShowBlockedContent(true)}
+              />
+            ) : (
+              <MutedPostPlaceholder
+                onView={() => setShowMutedContent(true)}
+              />
+            )}
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article
@@ -117,10 +279,7 @@ export default function PostCard({
       {!hideReplyContext &&
         post.replyToId &&
         (parentUnavailable ? (
-          <div
-            className="mb-2 ps-[52px]"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="mb-2 ps-[52px]">
             <DeletedPostPlaceholder className="border-0 bg-transparent px-0 py-0 text-xs" />
           </div>
         ) : (
@@ -151,45 +310,7 @@ export default function PostCard({
         ))}
 
       <div className="flex gap-3">
-        <div className="relative w-10 shrink-0 self-stretch">
-          {connectAbove && (
-            <span
-              aria-hidden="true"
-              className={`pointer-events-none absolute -top-3 bottom-full left-1/2 w-0.5 -translate-x-1/2 ${
-                dashedAbove
-                  ? "border-s-2 border-dashed border-muted-foreground/50"
-                  : "bg-border"
-              }`}
-            />
-          )}
-
-          <Link
-            href={`/${locale}/${displayAuthor.username}`}
-            onClick={(event) => event.stopPropagation()}
-            className="relative z-[1] block size-10"
-          >
-            {displayAuthor.avatarUrl ? (
-              <Image
-                src={displayAuthor.avatarUrl}
-                alt={displayAuthor.username}
-                width={40}
-                height={40}
-                className="size-10 rounded-full object-cover transition-opacity hover:opacity-90"
-              />
-            ) : (
-              <div className="flex size-10 items-center justify-center rounded-full bg-muted font-bold text-muted-foreground">
-                {displayAuthor.username[0]?.toUpperCase()}
-              </div>
-            )}
-          </Link>
-
-          {connectBelow && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute -bottom-3 top-10 left-1/2 w-0.5 -translate-x-1/2 bg-border"
-            />
-          )}
-        </div>
+        {threadAvatar}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
@@ -224,8 +345,11 @@ export default function PostCard({
               <PostDropdown
                 postId={post.id}
                 authorId={displayAuthor.id}
+                authorUsername={displayAuthor.username}
                 currentUserId={currentUserId}
                 isPinned={isPinnedForCurrentUser}
+                isBlocked={isBlockedByViewer}
+                isMuted={isMutedByViewer}
                 redirectAfterDelete={redirectAfterDelete}
                 fallbackHref={fallbackHref}
               />
@@ -251,10 +375,7 @@ export default function PostCard({
           )}
 
           {hasQuote && (
-            <QuotedPostCard
-              quotedPost={quotedTarget}
-              locale={locale}
-            />
+            <QuotedPostCard quotedPost={quotedTarget} locale={locale} />
           )}
 
           <div

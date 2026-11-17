@@ -15,20 +15,33 @@ export default async function RepostsPage({ params }: Props) {
   const { locale, postId } = await params;
   const currentUser = await getCurrentUser();
 
-  // ۱. بررسی دسترسی بیننده به خودِ پست اصلی
-  const post = await prisma.post.findFirst({
-    where: {
-      id: postId,
-      ...getVisiblePostWhere(currentUser?.id),
-    },
-    select: { id: true },
-  });
+ const post = await prisma.post.findFirst({
+  where: {
+    id: postId,
+    ...getVisiblePostWhere(currentUser?.id, {
+      includeBlockedByViewer: true,
+    }),
+  },
+  select: { id: true },
+});
 
   if (!post) notFound();
 
-  // ۲. فیلتر ریپوست‌کنندگان: عمومی‌ها + (اگر لاگین باشد: خودش یا کسانی که فالوور ACCEPTED آن‌هاست)
   const visibleReposterWhere = {
     deletedAt: null,
+
+    // حذف کاربرانی که یکی از دو طرف رابطه، دیگری را بلاک کرده است.
+    ...(currentUser
+      ? {
+          blockedBy: {
+            none: { blockerId: currentUser.id },
+          },
+          blocking: {
+            none: { blockedId: currentUser.id },
+          },
+        }
+      : {}),
+
     OR: [
       { isPrivate: false },
       ...(currentUser
@@ -66,17 +79,18 @@ export default async function RepostsPage({ params }: Props) {
     },
   });
 
-  // ۳. استخراج وضعیت فالو بودن برای دکمه FollowButton (فقط وضعیت ACCEPTED)
   const followingIds = new Set<string>();
+
   if (currentUser && reposts.length > 0) {
     const follows = await prisma.follow.findMany({
       where: {
         followerId: currentUser.id,
-        followingId: { in: reposts.map((r) => r.user.id) },
+        followingId: { in: reposts.map(({ user }) => user.id) },
         status: "ACCEPTED",
       },
       select: { followingId: true },
     });
+
     for (const follow of follows) {
       followingIds.add(follow.followingId);
     }
@@ -84,7 +98,6 @@ export default async function RepostsPage({ params }: Props) {
 
   return (
     <div className="mx-auto min-h-screen max-w-2xl border-x border-border">
-      {/* Header */}
       <div className="sticky top-0 z-10 flex items-center gap-6 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-md">
         <Link
           href={`/${locale}/status/${postId}`}
@@ -93,12 +106,10 @@ export default async function RepostsPage({ params }: Props) {
         >
           <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
         </Link>
-        <div>
-          <h1 className="text-xl font-bold">Reposted by</h1>
-        </div>
+
+        <h1 className="text-xl font-bold">Reposted by</h1>
       </div>
 
-      {/* Users List */}
       <div className="divide-y divide-border">
         {reposts.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
@@ -114,7 +125,6 @@ export default async function RepostsPage({ params }: Props) {
                 href={`/${locale}/${user.username}`}
                 className="flex min-w-0 flex-1 items-start gap-3 pr-2"
               >
-                {/* Avatar */}
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
                   {user.avatarUrl ? (
                     <Image
@@ -128,7 +138,6 @@ export default async function RepostsPage({ params }: Props) {
                   )}
                 </div>
 
-                {/* Details */}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold hover:underline">
                     {user.fullName || user.username}
