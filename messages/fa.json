@@ -187,8 +187,56 @@
     "copyLink": "کپی لینک پروفایل",
     "blockError": "تغییر وضعیت بلاک انجام نشد.",
     "muteError": "تغییر وضعیت میوت انجام نشد."
-  }
+  },
+"Settings": {
+  "back": "بازگشت",
+  "title": "تنظیمات",
+  "description": "حساب و تجربهٔ کاربری خود را مدیریت کنید.",
+  "editProfile": "ویرایش پروفایل",
+  "editProfileDescription": "نام، بیو، تصویر و اطلاعات پروفایل",
+  "privacy": "حریم خصوصی و امنیت",
+  "privacyDescription": "حساب خصوصی، افراد میوت‌شده و بلاک‌شده",
+  "messages": "پیام‌ها",
+  "messagesDescription": "دسترسی به پیام خصوصی و رسید خواندن",
+  "notifications": "اعلان‌ها",
+  "notificationsDescription": "انتخاب اعلان‌هایی که دریافت می‌کنید",
+  "language": "زبان",
+  "languageDescription": "زبان نمایش برنامه",
+  "sessions": "نشست‌ها",
+  "sessionsDescription": "مشاهده و مدیریت دستگاه‌های واردشده",
+  "comingSoon": "به‌زودی",
+  "Language": {
+    "title": "زبان",
+    "description": "زبان مورد استفاده در برنامه را انتخاب کنید.",
+    "back": "بازگشت",
+    "languageNames": {
+      "fa": "فارسی",
+      "en": "انگلیسی"
+    }
+  },
+  "Privacy": {
+    "back": "بازگشت",
+    "title": "حریم خصوصی و امنیت",
+    "description": "مدیریت اینکه چه کسانی محتوای شما را می‌بینند و با شما ارتباط دارند.",
+    "privateAccount": "حساب خصوصی",
+    "privateAccountDescription": "وقتی حسابتان خصوصی باشد، تنها افرادی که تأیید کنید می‌توانند پست‌های شما را ببینند.",
+    "mutedAccounts": "حساب‌های میوت‌شده",
+    "mutedAccountsDescription": "مدیریت حساب‌هایی که میوت کرده‌اید",
+    "blockedAccounts": "حساب‌های بلاک‌شده",
+    "blockedAccountsDescription": "مدیریت حساب‌هایی که بلاک کرده‌اید"
+  },
+  "Blocked": {
+  "title": "حساب‌های مسدودشده",
+  "empty": "هیچ حسابی را مسدود نکرده‌اید.",
+  "unblock": "رفع مسدودی"
+},
+"Muted": {
+  "title": "حساب‌های بی‌صداشده",
+  "empty": "هیچ حسابی را بی‌صدا نکرده‌اید.",
+  "unmute": "لغو بی‌صدا"
+}
 
 }
 
 
+}

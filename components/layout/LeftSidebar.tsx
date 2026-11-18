@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Compass, User, Bookmark, Feather, Mail } from "lucide-react";
+import {
+  Home,
+  Compass,
+  User,
+  Bookmark,
+  Feather,
+  Mail,
+  Settings,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import UserMenuWrapper from "./UserMenuWrapper";
 
@@ -32,7 +40,12 @@ export default function LeftSidebar({
       href: user ? `/${locale}/messages` : `/${locale}/login`,
       badge: unreadDMs,
     },
-    { icon: Bookmark, label: "Bookmarks", href: `/${locale}/bookmarks`, badge: 0 },
+    {
+      icon: Bookmark,
+      label: "Bookmarks",
+      href: `/${locale}/bookmarks`,
+      badge: 0,
+    },
     {
       icon: User,
       label: "Profile",
@@ -41,13 +54,16 @@ export default function LeftSidebar({
     },
   ];
 
+  const settingsHref = `/${locale}/settings`;
+  const isSettingsActive =
+    pathname === settingsHref || pathname.startsWith(`${settingsHref}/`);
+
   return (
-    // مخفی در موبایل (hidden) و نمایش از سایز md به بالا (md:flex)
-    <aside className="hidden md:flex flex-col h-full p-3 lg:p-4 space-y-2 sticky top-0 max-h-screen">
+    <aside className="sticky top-0 hidden max-h-screen h-full flex-col space-y-2 p-3 md:flex lg:p-4">
       <div className="mb-2 p-3">
         <Link href={`/${locale}/home`} className="inline-block">
-          <div className="w-10 h-10 bg-primary/10 hover:bg-primary/20 rounded-full flex items-center justify-center transition">
-            <Feather className="w-6 h-6 text-primary" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 transition hover:bg-primary/20">
+            <Feather className="h-6 w-6 text-primary" />
           </div>
         </Link>
       </div>
@@ -66,22 +82,21 @@ export default function LeftSidebar({
               key={item.label}
               href={item.href}
               className={cn(
-                "flex items-center gap-4 px-4 py-3 rounded-full transition-colors hover:bg-accent/80 text-neutral-300 hover:text-white",
-                isActive && "font-bold text-white bg-accent/40"
+                "flex items-center gap-4 rounded-full px-4 py-3 text-neutral-300 transition-colors hover:bg-accent/80 hover:text-white",
+                isActive && "bg-accent/40 font-bold text-white"
               )}
             >
-              <div className="relative shrink-0 flex items-center justify-center">
-                <Icon className="w-6 h-6" />
+              <div className="relative flex shrink-0 items-center justify-center">
+                <Icon className="h-6 w-6" />
 
-                {/* بج نشانگر پیام‌های خوانده‌نشده */}
                 {hasBadge && (
-                  <span className="absolute -top-1.5 -right-2 z-10 flex min-w-4 h-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white shadow ring-2 ring-background animate-in zoom-in-75">
+                  <span className="absolute -right-2 -top-1.5 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white shadow ring-2 ring-background animate-in zoom-in-75">
                     {item.badge && item.badge > 99 ? "99+" : item.badge}
                   </span>
                 )}
               </div>
 
-              <span className="text-xl hidden lg:inline">{item.label}</span>
+              <span className="hidden text-xl lg:inline">{item.label}</span>
             </Link>
           );
         })}
@@ -90,15 +105,27 @@ export default function LeftSidebar({
       <div className="relative z-0 my-2">
         <Link
           href={`/${locale}/compose`}
-          className="flex items-center justify-center w-full py-3 rounded-full bg-primary text-primary-foreground font-bold text-base lg:text-lg shadow-md hover:bg-primary/90 transition-colors"
+          className="flex w-full items-center justify-center rounded-full bg-primary py-3 text-base font-bold text-primary-foreground shadow-md transition-colors hover:bg-primary/90 lg:text-lg"
         >
           <span className="hidden lg:inline">Tweet</span>
-          <Feather className="w-5 h-5 lg:hidden" />
+          <Feather className="h-5 w-5 lg:hidden" />
         </Link>
       </div>
 
       {user && (
-        <div className="pt-2">
+        <div className="space-y-2 border-t border-border pt-3">
+          <Link
+            href={settingsHref}
+            aria-current={isSettingsActive ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-4 rounded-full px-4 py-3 text-neutral-300 transition-colors hover:bg-accent/80 hover:text-white",
+              isSettingsActive && "bg-accent/40 font-bold text-white"
+            )}
+          >
+            <Settings className="h-6 w-6 shrink-0" aria-hidden="true" />
+            <span className="hidden text-xl lg:inline">Settings</span>
+          </Link>
+
           <UserMenuWrapper
             initialUser={{
               username: user.username,

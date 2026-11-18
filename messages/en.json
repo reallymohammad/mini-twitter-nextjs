@@ -178,6 +178,57 @@
     "copyLink": "Copy profile link",
     "blockError": "Could not change block status.",
     "muteError": "Could not change mute status."
-  }
+  },
+ "Settings": {
+  "back": "Back",
+  "title": "Settings",
+  "description": "Manage your account and experience.",
+  "editProfile": "Edit profile",
+  "editProfileDescription": "Name, bio, photos, and profile information",
+  "privacy": "Privacy and safety",
+  "privacyDescription": "Private account, muted and blocked accounts",
+  "messages": "Messages",
+  "messagesDescription": "Direct message permissions and read receipts",
+  "notifications": "Notifications",
+  "notificationsDescription": "Choose which notifications you receive",
+  "language": "Language",
+  "languageDescription": "App display language",
+  "sessions": "Sessions",
+  "sessionsDescription": "View and manage signed-in devices",
+  "comingSoon": "Coming soon",
+  
+  "Language": {
+    "title": "Language",
+    "description": "Choose the language used across the app.",
+    "back": "Back",
+    "languageNames": {
+      "fa": "Persian",
+      "en": "English"
+    }
+  },
+  "Privacy": {
+    "back": "Back",
+    "title": "Privacy and safety",
+    "description": "Manage who can see your content and interact with you.",
+    "privateAccount": "Private account",
+    "privateAccountDescription": "When your account is private, only people you approve can see your posts.",
+    "mutedAccounts": "Muted accounts",
+    "mutedAccountsDescription": "Manage accounts you have muted",
+    "blockedAccounts": "Blocked accounts",
+    "blockedAccountsDescription": "Manage accounts you have blocked"
+  },
+  "Blocked": {
+  "title": "Blocked accounts",
+  "empty": "You have not blocked any accounts.",
+  "unblock": "Unblock"
+},
+"Muted": {
+  "title": "Muted accounts",
+  "empty": "You have not muted any accounts.",
+  "unmute": "Unmute"
+}
+}
+
+
 
 }
