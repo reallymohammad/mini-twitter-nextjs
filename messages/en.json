@@ -226,7 +226,31 @@
   "title": "Muted accounts",
   "empty": "You have not muted any accounts.",
   "unmute": "Unmute"
+},
+"Messages": {
+  "back": "Back",
+  "title": "Messages",
+  "description": "Manage direct message permissions and read receipts.",
+  "dmPermission": "Who can message you",
+  "dmPermissionDescription": "Choose who can start a direct conversation with you.",
+  "readReceipts": "Show read receipts",
+  "readReceiptsDescription": "Choose whether others can see when you have read their messages.",
+  "permissions": {
+    "everyone": "Everyone",
+    "followers": "People who follow you",
+    "following": "People you follow",
+    "mutuals": "People who follow you and whom you follow",
+    "nobody": "Nobody"
+  },
+  "loading": "Loading message settings",
+  "loadError": "Could not load message settings.",
+  "saveError": "Could not save changes. Please try again.",
+  "retry": "Try again",
+  "save": "Save changes",
+  "saving": "Saving...",
+  "saved": "Changes saved."
 }
+
 }
 
 

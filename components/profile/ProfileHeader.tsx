@@ -10,7 +10,6 @@ import {
   CalendarDays,
   MapPin,
   Link2,
-  Mail,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -21,7 +20,7 @@ import {
   Volume2,
 } from "lucide-react";
 
-import { startDirectConversation } from "@/lib/dm/actions";
+import DirectMessageButton from "@/components/profile/DirectMessageButton";
 import FollowButton from "@/components/user/FollowButton";
 
 interface User {
@@ -47,6 +46,7 @@ interface Props {
   hasBlockedThem: boolean;
   isBlockedByThem: boolean;
   isMutedByMe: boolean;
+  canSendDirectMessage: boolean;
 }
 
 function getValidBackPath(
@@ -93,12 +93,12 @@ export default function ProfileHeader({
   hasBlockedThem,
   isBlockedByThem,
   isMutedByMe,
+  canSendDirectMessage,
 }: Props) {
   const t = useTranslations("profile");
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [isPendingMessage, startMessageTransition] = useTransition();
   const [isPendingBlock, startBlockTransition] = useTransition();
   const [isPendingMute, startMuteTransition] = useTransition();
 
@@ -148,21 +148,6 @@ export default function ProfileHeader({
   function handleBack() {
     if (!fromPath) return;
     router.replace(fromPath);
-  }
-
-  function handleDirectMessage() {
-    startMessageTransition(async () => {
-      try {
-        const res = await startDirectConversation(user.id);
-
-        if (res?.conversationId) {
-          router.push(`/${locale}/messages/${res.conversationId}`);
-        }
-      } catch (err: unknown) {
-        const error = err as Error;
-        alert(error?.message || "امکان ارسال پیام به این کاربر وجود ندارد.");
-      }
-    });
   }
 
   function handleToggleBlock() {
@@ -363,7 +348,7 @@ export default function ProfileHeader({
                           )}
                           {isMuted
                             ? t("unmuteAccount")
-                            : t("muteAccount")}{" "}
+                            : t("muteAccount")} {" "}
                           @{user.username}
                         </button>
                       )}
@@ -382,7 +367,7 @@ export default function ProfileHeader({
                         )}
                         {isBlocked
                           ? t("unblockAccount")
-                          : t("blockAccount")}{" "}
+                          : t("blockAccount")} {" "}
                         @{user.username}
                       </button>
                     </div>
@@ -411,23 +396,13 @@ export default function ProfileHeader({
                   </button>
                 ) : isBlockedByThem ? null : (
                   <>
-                    <button
-                      type="button"
-                      onClick={handleDirectMessage}
-                      disabled={isPendingMessage}
-                      title="Direct Message"
-                      aria-label="Send direct message"
-                      className="rounded-full border border-border p-2 text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                    >
-                      {isPendingMessage ? (
-                        <Loader2
-                          size={18}
-                          className="animate-spin text-muted-foreground"
-                        />
-                      ) : (
-                        <Mail size={18} />
-                      )}
-                    </button>
+                    {canSendDirectMessage && (
+                      <DirectMessageButton
+                        recipientUserId={user.id}
+                        locale={locale}
+                        username={user.username}
+                      />
+                    )}
 
                     <FollowButton
                       targetUserId={user.id}
@@ -448,9 +423,7 @@ export default function ProfileHeader({
         )}
 
         <div className="flex items-center gap-1.5">
-          <h1 className="text-lg font-bold leading-tight">
-            {user.fullName}
-          </h1>
+          <h1 className="text-lg font-bold leading-tight">{user.fullName}</h1>
 
           {user.isPrivate && (
             <Lock
@@ -461,9 +434,7 @@ export default function ProfileHeader({
           )}
         </div>
 
-        <p className="mb-3 text-sm text-muted-foreground">
-          @{user.username}
-        </p>
+        <p className="mb-3 text-sm text-muted-foreground">@{user.username}</p>
 
         {user.bio && (
           <p className="mb-3 text-sm leading-relaxed">{user.bio}</p>
@@ -483,8 +454,7 @@ export default function ProfileHeader({
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-primary hover:underline"
             >
-              <Link2 size={14} />{" "}
-              {user.website.replace(/^https?:\/\//, "")}
+              <Link2 size={14} /> {user.website.replace(/^https?:\/\//, "")}
             </a>
           )}
 
@@ -497,16 +467,12 @@ export default function ProfileHeader({
           {blockExists ? (
             <>
               <span>
-                <strong className="font-semibold">
-                  {counts.following}
-                </strong>{" "}
+                <strong className="font-semibold">{counts.following}</strong>{" "}
                 <span className="text-muted-foreground">Following</span>
               </span>
 
               <span>
-                <strong className="font-semibold">
-                  {counts.followers}
-                </strong>{" "}
+                <strong className="font-semibold">{counts.followers}</strong>{" "}
                 <span className="text-muted-foreground">Followers</span>
               </span>
             </>
@@ -516,9 +482,7 @@ export default function ProfileHeader({
                 href={`/${locale}/${encodeURIComponent(user.username)}/following`}
                 className="hover:underline"
               >
-                <strong className="font-semibold">
-                  {counts.following}
-                </strong>{" "}
+                <strong className="font-semibold">{counts.following}</strong>{" "}
                 <span className="text-muted-foreground">Following</span>
               </Link>
 
@@ -526,9 +490,7 @@ export default function ProfileHeader({
                 href={`/${locale}/${encodeURIComponent(user.username)}/followers`}
                 className="hover:underline"
               >
-                <strong className="font-semibold">
-                  {counts.followers}
-                </strong>{" "}
+                <strong className="font-semibold">{counts.followers}</strong>{" "}
                 <span className="text-muted-foreground">Followers</span>
               </Link>
             </>

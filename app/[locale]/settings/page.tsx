@@ -29,14 +29,10 @@ export default async function SettingsPage({ params }: Props) {
   const editProfileHref = `/${locale}/settings/profile`;
   const languageHref = `/${locale}/settings/language`;
   const privacyHref = `/${locale}/settings/privacy`;
+  const messagesHref = `/${locale}/settings/messages`; // لینک جدید فعال شد
   const homeHref = `/${locale}/home`;
 
   const upcomingSections = [
-    {
-      title: t("messages"),
-      description: t("messagesDescription"),
-      icon: MessageCircle,
-    },
     {
       title: t("notifications"),
       description: t("notificationsDescription"),
@@ -71,6 +67,7 @@ export default async function SettingsPage({ params }: Props) {
         </header>
 
         <div className="space-y-3">
+          {/* Edit Profile */}
           <Link
             href={editProfileHref}
             className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
@@ -78,22 +75,14 @@ export default async function SettingsPage({ params }: Props) {
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <UserRound className="h-5 w-5" aria-hidden="true" />
             </span>
-
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">
-                {t("editProfile")}
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {t("editProfileDescription")}
-              </span>
+              <span className="block text-sm font-semibold">{t("editProfile")}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{t("editProfileDescription")}</span>
             </span>
-
-            <ChevronRight
-              className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180"
-              aria-hidden="true"
-            />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" />
           </Link>
 
+          {/* Language */}
           <Link
             href={languageHref}
             className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
@@ -101,22 +90,14 @@ export default async function SettingsPage({ params }: Props) {
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <Languages className="h-5 w-5" aria-hidden="true" />
             </span>
-
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">
-                {t("language")}
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {t("languageDescription")}
-              </span>
+              <span className="block text-sm font-semibold">{t("language")}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{t("languageDescription")}</span>
             </span>
-
-            <ChevronRight
-              className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180"
-              aria-hidden="true"
-            />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" />
           </Link>
 
+          {/* Privacy */}
           <Link
             href={privacyHref}
             className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
@@ -124,22 +105,29 @@ export default async function SettingsPage({ params }: Props) {
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <Shield className="h-5 w-5" aria-hidden="true" />
             </span>
-
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">
-                {t("privacy")}
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {t("privacyDescription")}
-              </span>
+              <span className="block text-sm font-semibold">{t("privacy")}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{t("privacyDescription")}</span>
             </span>
-
-            <ChevronRight
-              className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180"
-              aria-hidden="true"
-            />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" />
           </Link>
 
+          {/* Messages (Activated) */}
+          <Link
+            href={messagesHref}
+            className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+              <MessageCircle className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">{t("messages")}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{t("messagesDescription")}</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" />
+          </Link>
+
+          {/* Remaining Upcoming */}
           {upcomingSections.map((section) => {
             const Icon = section.icon;
 

@@ -10,6 +10,7 @@ import {
   sanitizePostRelations,
 } from "@/lib/prisma/postInclude";
 import { getCurrentUser } from "@/lib/session";
+import { canSendDirectMessage } from "@/lib/dm/permissions";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 
@@ -175,6 +176,12 @@ export default async function ProfilePage({
   );
   const isBlocked = hasBlockedThem || isBlockedByThem;
 
+  // UI visibility only. Direct-conversation creation must recheck authorization server-side.
+  const dmPermission =
+    currentUser && !isOwner
+      ? await canSendDirectMessage(currentUser.id, profileUser.id)
+      : { allowed: false as const, reason: "OWNER" as const };
+
   // Mute کلید اصلی ترکیبی دارد و فیلد id ندارد.
   const muteRecord =
     currentUser && !isOwner
@@ -275,8 +282,7 @@ export default async function ProfilePage({
 
       const pinnedItems: FeedItem[] = pinnedRecords
         .filter(
-          (record) =>
-            record.post && record.post.deletedAt === null,
+          (record) => record.post && record.post.deletedAt === null,
         )
         .map((record) => ({
           ...record.post,
@@ -284,9 +290,7 @@ export default async function ProfilePage({
           isPinnedProfile: true,
         }));
 
-      const pinnedPostIds = new Set(
-        pinnedItems.map((post) => post.id),
-      );
+      const pinnedPostIds = new Set(pinnedItems.map((post) => post.id));
 
       const normalItems: FeedItem[] = [
         ...userPosts
@@ -309,8 +313,7 @@ export default async function ProfilePage({
             timelineDate: repost.createdAt,
           })),
       ].sort(
-        (a, b) =>
-          b.timelineDate.getTime() - a.timelineDate.getTime(),
+        (a, b) => b.timelineDate.getTime() - a.timelineDate.getTime(),
       );
 
       posts = [...pinnedItems, ...normalItems].slice(0, 20);
@@ -372,8 +375,7 @@ export default async function ProfilePage({
 
       posts = data
         .filter(
-          (repost) =>
-            repost.post && repost.post.deletedAt === null,
+          (repost) => repost.post && repost.post.deletedAt === null,
         )
         .map((repost) => ({
           ...repost.post,
@@ -408,6 +410,7 @@ export default async function ProfilePage({
         hasBlockedThem={hasBlockedThem}
         isBlockedByThem={isBlockedByThem}
         isMutedByMe={isMutedByMe}
+        canSendDirectMessage={dmPermission.allowed}
       />
 
       {isBlocked ? (
