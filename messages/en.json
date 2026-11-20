@@ -235,6 +235,11 @@
   "dmPermissionDescription": "Choose who can start a direct conversation with you.",
   "readReceipts": "Show read receipts",
   "readReceiptsDescription": "Choose whether others can see when you have read their messages.",
+  "blockedNotice": "You cannot send messages because one of you has blocked the other.",
+"checkingBlockStatus": "Checking message availability...",
+"blockCheckError": "Could not check whether messaging is available.",
+  "retry": "Try again",
+
   "permissions": {
     "everyone": "Everyone",
     "followers": "People who follow you",
@@ -245,14 +250,51 @@
   "loading": "Loading message settings",
   "loadError": "Could not load message settings.",
   "saveError": "Could not save changes. Please try again.",
-  "retry": "Try again",
   "save": "Save changes",
   "saving": "Saving...",
   "saved": "Changes saved."
 }
 
-}
-
+},
+ "conversationList": {
+    "emptyTitle": "Your inbox is empty",
+    "emptyDescription": "Start a conversation using the new message button or from someone's profile.",
+    "deletedAccount": "Deleted account",
+    "imageSent": "Image sent",
+    "newConversation": "New conversation",
+    "openConversationWith": "Open conversation with {name}",
+    "moreActions": "More actions",
+    "viewProfile": "View profile",
+    "copyProfileLink": "Copy profile link",
+    "loadingActions": "Loading actions...",
+    "muteUser": "Mute account",
+    "unmuteUser": "Unmute account",
+    "blockUser": "Block account",
+    "unblockUser": "Unblock account",
+    "blockedByUser": "This account has blocked you.",
+    "reportUser": "Report account",
+    "deleteConversation": "Delete conversation",
+    "deleteTitle": "Delete conversation?",
+    "deleteDescription": "This conversation will be removed from your inbox. The other participant will still have their messages unless they delete the conversation too.",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "statusError": "Could not load account actions.",
+    "blockError": "Could not update the block status.",
+    "muteError": "Could not update the mute status.",
+    "copyError": "Could not copy the profile link.",
+    "deleteError": "Could not delete the conversation."
+    
+  },
+   "chatHeader": {
+    "back": "Back to messages",
+    "typing": "Typing…",
+    "online": "Online",
+    "offline": "Offline"
+  },
+    "messagesEmpty": {
+    "title": "Select a conversation",
+    "description": "Choose a conversation from the list, or start a new one."
+  }
 
 
 }

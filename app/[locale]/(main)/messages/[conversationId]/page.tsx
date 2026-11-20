@@ -1,6 +1,6 @@
 // app/[locale]/(main)/messages/[conversationId]/page.tsx
 import { notFound } from "next/navigation";
-import ChatWindow from "@/components/messages/ChatWindow";
+import ChatWindow from "@/components/messages/ChatWindow/ChatWindow"; 
 import { getConversationDetails } from "@/lib/dm/actions";
 import { getCurrentUser } from "@/lib/session";
 

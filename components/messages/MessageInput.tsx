@@ -4,26 +4,31 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
 import { SendHorizontal, Loader2 } from "lucide-react";
+
 import { sendDirectMessage } from "@/lib/dm/actions";
 import type { DirectMessagePayload } from "@/lib/dm/types";
 
 interface MessageInputProps {
   conversationId: string;
+  draft: string;
+  onDraftChange: (value: string) => void;
   onTypingChange?: (isTyping: boolean) => void;
   onMessageSent?: (message: DirectMessagePayload) => void;
+  onBlockError?: () => void;
 }
 
 export default function MessageInput({
   conversationId,
+  draft,
+  onDraftChange,
   onTypingChange,
   onMessageSent,
+  onBlockError,
 }: MessageInputProps) {
-  const [text, setText] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -54,7 +59,7 @@ export default function MessageInput({
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
-    setText(value);
+    onDraftChange(value);
 
     if (!value.trim()) {
       stopTyping();
@@ -77,42 +82,51 @@ export default function MessageInput({
   };
 
   const handleSend = () => {
-    if (!text.trim() || isPending || sendingRef.current) return;
+    if (!draft.trim() || isPending || sendingRef.current) return;
 
-    const currentText = text.trim();
+    const currentText = draft.trim();
     sendingRef.current = true;
-
     stopTyping();
-    setText("");
 
     startTransition(async () => {
       try {
-        const savedMessage = await sendDirectMessage({
+        const result = await sendDirectMessage({
           conversationId,
           content: currentText,
         });
 
-        // شکست Realtime نباید پیام ذخیره‌شده را «ارسال‌نشده» جلوه دهد.
+        if (result.status === "blocked") {
+          onBlockError?.();
+          return;
+        }
+
+        // شکست callback نباید پیام ذخیره‌شده را «ارسال‌نشده» جلوه دهد.
         try {
-          onMessageSent?.(savedMessage);
+          onMessageSent?.(result.message);
         } catch (error) {
           console.error("[DM Input] Post-send UI callback failed:", error);
         }
 
+        onDraftChange("");
         router.refresh();
       } catch (error) {
+        // فقط خطاهای غیرمنتظره اینجا ثبت می‌شوند.
         console.error("[DM Input] Send failed:", error);
+
         alert(
-          error instanceof Error ? error.message : "خطا در ارسال پیام."
+          error instanceof Error
+            ? error.message
+            : "خطا در ارسال پیام."
         );
-        setText(currentText);
       } finally {
         sendingRef.current = false;
       }
     });
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSend();
@@ -124,7 +138,7 @@ export default function MessageInput({
       <div className="mx-auto flex max-w-4xl items-center gap-2">
         <input
           type="text"
-          value={text}
+          value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={stopTyping}
@@ -135,7 +149,7 @@ export default function MessageInput({
         <button
           type="button"
           onClick={handleSend}
-          disabled={!text.trim() || isPending}
+          disabled={!draft.trim() || isPending}
           aria-label="Send message"
           className="shrink-0 rounded-full bg-primary p-2.5 text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
         >

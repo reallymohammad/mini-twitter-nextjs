@@ -68,3 +68,34 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({ ok: true, isMuted: false });
 }
+export async function GET(req: NextRequest) {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
+  const targetUserId = req.nextUrl.searchParams.get("targetUserId");
+
+  if (!targetUserId?.trim()) {
+    return NextResponse.json(
+      { error: "targetUserId is required" },
+      { status: 400 },
+    );
+  }
+
+  const mute = await prisma.mute.findUnique({
+    where: {
+      muterId_mutedId: {
+        muterId: currentUser.id,
+        mutedId: targetUserId,
+      },
+    },
+    select: { muterId: true },
+  });
+
+  return NextResponse.json({ isMutedByMe: mute !== null });
+}

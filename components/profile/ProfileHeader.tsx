@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
-  ArrowLeft,
   CalendarDays,
   MapPin,
   Link2,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 
 import DirectMessageButton from "@/components/profile/DirectMessageButton";
+import ProfileBackButton from "@/components/profile/ProfileBackButton";
 import FollowButton from "@/components/user/FollowButton";
 
 interface User {
@@ -49,40 +49,6 @@ interface Props {
   canSendDirectMessage: boolean;
 }
 
-function getValidBackPath(
-  from: string | null,
-  locale: string,
-): string | null {
-  if (!from || !from.startsWith("/") || from.startsWith("//")) {
-    return null;
-  }
-
-  try {
-    const destination = new URL(from, "http://internal.local");
-    const segments = destination.pathname.split("/").filter(Boolean);
-
-    if (segments[0] !== locale) {
-      return null;
-    }
-
-    const isFollowList =
-      segments.length === 3 &&
-      Boolean(segments[1]) &&
-      (segments[2] === "followers" || segments[2] === "following");
-
-    const isSearchPage =
-      segments.length === 2 && segments[1] === "search";
-
-    if (!isFollowList && !isSearchPage) {
-      return null;
-    }
-
-    return `${destination.pathname}${destination.search}${destination.hash}`;
-  } catch {
-    return null;
-  }
-}
-
 export default function ProfileHeader({
   user,
   counts,
@@ -97,7 +63,6 @@ export default function ProfileHeader({
 }: Props) {
   const t = useTranslations("profile");
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [isPendingBlock, startBlockTransition] = useTransition();
   const [isPendingMute, startMuteTransition] = useTransition();
@@ -110,8 +75,6 @@ export default function ProfileHeader({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const blockExists = isBlocked || isBlockedByThem;
-  const fromPath = getValidBackPath(searchParams.get("from"), locale);
-  const showBackButton = !isOwner && Boolean(fromPath);
 
   useEffect(() => {
     setIsBlocked(hasBlockedThem);
@@ -144,11 +107,6 @@ export default function ProfileHeader({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [menuOpen]);
-
-  function handleBack() {
-    if (!fromPath) return;
-    router.replace(fromPath);
-  }
 
   function handleToggleBlock() {
     if (isPendingBlock || isPendingMute) return;
@@ -240,22 +198,8 @@ export default function ProfileHeader({
 
   return (
     <div className="contents">
-      <div
-        className={`sticky top-0 z-20 flex h-14 items-center border-b border-border bg-background/80 px-4 backdrop-blur-md ${
-          showBackButton ? "gap-4" : "gap-0"
-        }`}
-      >
-        {showBackButton && (
-          <button
-            type="button"
-            onClick={handleBack}
-            aria-label={t("back")}
-            title={t("back")}
-            className="-ms-2 rounded-full p-2 transition-colors hover:bg-muted"
-          >
-            <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
-          </button>
-        )}
+      <div className="sticky top-0 z-20 flex h-14 items-center gap-0 border-b border-border bg-background/80 px-4 backdrop-blur-md">
+        <ProfileBackButton locale={locale} isOwner={isOwner} />
 
         <div className="min-w-0">
           <p className="truncate text-base font-bold">

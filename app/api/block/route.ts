@@ -95,3 +95,48 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({ ok: true, isBlocked: false });
 }
+export async function GET(req: NextRequest) {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
+  const targetUserId = req.nextUrl.searchParams.get("targetUserId");
+
+  if (!targetUserId?.trim()) {
+    return NextResponse.json(
+      { error: "targetUserId is required" },
+      { status: 400 },
+    );
+  }
+
+  const [outgoing, incoming] = await Promise.all([
+    prisma.block.findUnique({
+      where: {
+        blockerId_blockedId: {
+          blockerId: currentUser.id,
+          blockedId: targetUserId,
+        },
+      },
+      select: { blockerId: true },
+    }),
+    prisma.block.findUnique({
+      where: {
+        blockerId_blockedId: {
+          blockerId: targetUserId,
+          blockedId: currentUser.id,
+        },
+      },
+      select: { blockerId: true },
+    }),
+  ]);
+
+  return NextResponse.json({
+    hasBlockedThem: outgoing !== null,
+    isBlockedByThem: incoming !== null,
+  });
+}
