@@ -141,6 +141,10 @@ model User {
   // DMs
   conversations UserConversation[]
   messages      Message[]
+  messageDeletions MessageDeletion[]
+  messageReactions MessageReaction[]
+
+
 
   @@index([badge])
   @@index([deletedAt])
@@ -412,13 +416,37 @@ model Message {
   createdAt      DateTime  @default(now())
   deletedAt      DateTime?
 
-  conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender        User           @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  reports       Report[]       @relation("ReportedMessage")
-  notifications Notification[] @relation("MessageNotifications")
+  // Reply (دقیقاً در یک خط)
+  replyToId String?
+  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
+
+  // Reactions
+  reactions MessageReaction[]
+
+  conversation  Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender        User            @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  reports       Report[]        @relation("ReportedMessage")
+  notifications Notification[]  @relation("MessageNotifications")
+  userDeletions MessageDeletion[]
 
   @@index([conversationId, createdAt(sort: Desc)])
+  @@index([replyToId])
   @@index([deletedAt])
+}
+
+model MessageReaction {
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId])
 }
 
 // ==========================================
@@ -507,4 +535,15 @@ model Notification {
 
   @@index([recipientId, createdAt(sort: Desc)])
   @@index([recipientId, isRead])
+}
+model MessageDeletion {
+  userId    String
+  messageId String
+  deletedAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([userId, messageId])
+  @@index([messageId])
 }

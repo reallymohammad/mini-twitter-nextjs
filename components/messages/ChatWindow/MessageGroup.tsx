@@ -1,25 +1,40 @@
 "use client";
 
-import { memo } from "react";
-
 import MessageBubble from "../MessageBubble";
+import type { ReplyTarget } from "../MessageInput";
 import type { MessageItem } from "./useChatRealtime";
 
 interface MessageGroupProps {
   dateLabel: string;
   items: MessageItem[];
   currentUserId: string;
+  onMessageDeleted: (messageId: string) => void;
+  selectionMode: boolean;
+  selectedMessageIds: ReadonlySet<string>;
+  onToggleMessageSelected: (messageId: string) => void;
+  onStartSelection: (messageId: string) => void;
+  onToggleReaction: (messageId: string, emoji: string) => Promise<unknown>;
+  onReply: (target: ReplyTarget) => void;
+  onScrollToMessage: (messageId: string) => void;
 }
 
-function MessageGroup({
+export default function MessageGroup({
   dateLabel,
   items,
   currentUserId,
+  onMessageDeleted,
+  selectionMode,
+  selectedMessageIds,
+  onToggleMessageSelected,
+  onStartSelection,
+  onToggleReaction,
+  onReply,
+  onScrollToMessage,
 }: MessageGroupProps) {
   return (
-    <div className="space-y-3">
-      <div className="my-2 flex justify-center">
-        <span className="rounded-full border border-border/40 bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+    <section>
+      <div className="mb-4 flex justify-center">
+        <span className="rounded-full border border-border bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
           {dateLabel}
         </span>
       </div>
@@ -27,19 +42,19 @@ function MessageGroup({
       {items.map((message) => (
         <MessageBubble
           key={message.id}
+          message={message}
+          currentUserId={currentUserId}
           isMine={message.senderId === currentUserId}
-          message={{
-            id: message.id,
-            senderId: message.senderId,
-            content: message.content,
-            mediaUrls: message.mediaUrls,
-            createdAt: message.createdAt,
-            isSeen: message.isSeen,
-          }}
+          onDeleted={onMessageDeleted}
+          selectionMode={selectionMode}
+          isSelected={selectedMessageIds.has(message.id)}
+          onToggleSelected={onToggleMessageSelected}
+          onStartSelection={onStartSelection}
+          onToggleReaction={onToggleReaction}
+          onReply={onReply}
+          onScrollToMessage={onScrollToMessage}
         />
       ))}
-    </div>
+    </section>
   );
 }
-
-export default memo(MessageGroup);

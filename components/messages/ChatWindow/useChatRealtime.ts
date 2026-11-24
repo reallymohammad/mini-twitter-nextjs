@@ -14,18 +14,20 @@ import {
   deleteConversation,
   getMessagesSince,
   getConversationBlockStatus,
+  toggleMessageReaction,
 } from "@/lib/dm/actions";
 import type {
   DirectMessagePayload,
   MessageCursor,
+  DirectMessageReactionPayload,
 } from "@/lib/dm/types";
 import { supabase } from "@/lib/supabase/client";
 
 export interface MessageItem extends DirectMessagePayload {
   text?: string;
+  reactions?: DirectMessageReactionPayload[];
 }
 
-// دادهٔ اولیه ممکن است از سرور با Date به کلاینت رسیده باشد.
 export type InitialMessage = Omit<
   Partial<DirectMessagePayload>,
   "createdAt"
@@ -34,6 +36,7 @@ export type InitialMessage = Omit<
   senderId: string;
   createdAt: string | Date;
   text?: string | null;
+  reactions?: DirectMessageReactionPayload[];
 };
 
 export type BlockStatus =
@@ -84,19 +87,29 @@ function getInitialCursor(
 }
 
 function normalizeMessage(
-  raw: InitialMessage,
+  raw: InitialMessage | DirectMessagePayload,
   conversationId: string
 ): MessageItem {
+  const text =
+    "text" in raw ? raw.text ?? undefined : undefined;
+
   return {
+    ...raw,
+    text,
     id: raw.id,
     senderId: raw.senderId,
     conversationId: raw.conversationId || conversationId,
-    content: raw.content ?? raw.text ?? null,
-    mediaUrls: Array.isArray(raw.mediaUrls) ? raw.mediaUrls : [],
+    content: raw.content ?? text ?? null,
+    mediaUrls: Array.isArray(raw.mediaUrls)
+      ? raw.mediaUrls
+      : [],
     createdAt: new Date(raw.createdAt).toISOString(),
     readAt: raw.readAt ?? null,
     isSeen: raw.isSeen ?? Boolean(raw.readAt),
     deletedAt: raw.deletedAt ?? null,
+    replyToId: raw.replyToId ?? null,
+    replyTo: raw.replyTo ?? null,
+    reactions: Array.isArray(raw.reactions) ? raw.reactions : [],
   };
 }
 
@@ -118,42 +131,50 @@ export function useChatRealtime({
           typeof message?.id === "string" &&
           typeof message?.senderId === "string" &&
           !message.deletedAt &&
-          !Number.isNaN(new Date(message.createdAt).getTime())
+          !Number.isNaN(
+            new Date(message.createdAt).getTime()
+          )
       )
-      .map((message) => normalizeMessage(message, conversationId))
+      .map((message) =>
+        normalizeMessage(message, conversationId)
+      )
       .sort(comparePositions)
   );
 
-  const [isRecipientTyping, setIsRecipientTyping] = useState(false);
+  const [isRecipientTyping, setIsRecipientTyping] =
+    useState(false);
   const [isRecipientOnline, setIsRecipientOnline] = useState(
     Boolean(recipientInitiallyOnline)
   );
   const [blockStatus, setBlockStatus] =
     useState<BlockStatus>("checking");
   const [blockCheckVersion, setBlockCheckVersion] = useState(0);
+
   const [
     isDeletingConversation,
     startDeleteConversationTransition,
   ] = useTransition();
 
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(
-    null
-  );
+  const typingTimeoutRef = useRef<
+    ReturnType<typeof setTimeout> | null
+  >(null);
+  const channelRef = useRef<
+    ReturnType<typeof supabase.channel> | null
+  >(null);
   const flushingChannelRef = useRef<
     ReturnType<typeof supabase.channel> | null
   >(null);
 
   const channelReadyRef = useRef(false);
   const mountedRef = useRef(false);
-  const pendingBroadcastsRef = useRef<DirectMessagePayload[]>([]);
+  const pendingBroadcastsRef =
+    useRef<DirectMessagePayload[]>([]);
 
-  // پاسخِ بررسی قدیمی نباید بلاکِ تأییدشده پس از خطای ارسال را لغو کند.
+  const deletedMessageIdsRef = useRef<Set<string>>(
+    new Set()
+  );
+
   const blockCheckRequestRef = useRef(0);
-
-  // Broadcast نباید cursor بازیابی پایگاه‌داده را جلو ببرد.
   const recoveryCursorRef = useRef<MessageCursor | null>(
     getInitialCursor(initialMessages)
   );
@@ -179,11 +200,16 @@ export function useChatRealtime({
           !cancelled &&
           requestId === blockCheckRequestRef.current
         ) {
-          setBlockStatus(blocked ? "blocked" : "allowed");
+          setBlockStatus(
+            blocked ? "blocked" : "allowed"
+          );
         }
       })
       .catch((error) => {
-        console.error("[DM] Could not check block status:", error);
+        console.error(
+          "[DM] Could not check block status:",
+          error
+        );
 
         if (
           !cancelled &&
@@ -198,6 +224,68 @@ export function useChatRealtime({
     };
   }, [conversationId, blockCheckVersion]);
 
+  const removeDeletedMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId) return;
+
+      deletedMessageIdsRef.current.add(messageId);
+
+      setMessages((previous) =>
+        previous.filter(
+          (message) => message.id !== messageId
+        )
+      );
+    },
+    []
+  );
+
+  const applyReactionUpdate = useCallback(
+    (input: {
+      messageId: string;
+      userId: string;
+      emoji: string | null;
+    }) => {
+      setMessages((previous) =>
+        previous.map((message) => {
+          if (message.id !== input.messageId) {
+            return message;
+          }
+
+          const reactions = (message.reactions ?? []).filter(
+            (reaction) => reaction.userId !== input.userId
+          );
+
+          if (input.emoji) {
+            reactions.push({
+              userId: input.userId,
+              emoji: input.emoji,
+            });
+          }
+
+          return {
+            ...message,
+            reactions,
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const handleToggleReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      const result = await toggleMessageReaction(
+        messageId,
+        emoji
+      );
+
+      applyReactionUpdate(result);
+
+      return result;
+    },
+    [applyReactionUpdate]
+  );
+
   const appendOrUpdateMessage = useCallback(
     (incoming: DirectMessagePayload) => {
       if (
@@ -210,15 +298,26 @@ export function useChatRealtime({
       }
 
       if (incoming.deletedAt) {
-        setMessages((previous) =>
-          previous.filter((message) => message.id !== incoming.id)
-        );
+        removeDeletedMessage(incoming.id);
         return;
       }
 
-      const normalized = normalizeMessage(incoming, conversationId);
+      if (deletedMessageIdsRef.current.has(incoming.id)) {
+        return;
+      }
+
+      const normalized = normalizeMessage(
+        incoming,
+        conversationId
+      );
 
       setMessages((previous) => {
+        if (
+          deletedMessageIdsRef.current.has(normalized.id)
+        ) {
+          return previous;
+        }
+
         const index = previous.findIndex(
           (message) => message.id === normalized.id
         );
@@ -230,26 +329,51 @@ export function useChatRealtime({
           updated[index] = {
             ...existing,
             ...normalized,
-            readAt: normalized.readAt ?? existing.readAt,
-            isSeen: Boolean(existing.isSeen || normalized.isSeen),
+            readAt:
+              normalized.readAt ?? existing.readAt,
+            isSeen: Boolean(
+              existing.isSeen || normalized.isSeen
+            ),
+            replyToId:
+              incoming.replyToId === undefined
+                ? existing.replyToId
+                : normalized.replyToId,
+            replyTo:
+              incoming.replyTo === undefined &&
+              (incoming.replyToId === undefined ||
+                incoming.replyToId ===
+                  existing.replyToId)
+                ? existing.replyTo
+                : normalized.replyTo,
+            reactions:
+              incoming.reactions === undefined
+                ? existing.reactions
+                : normalized.reactions,
           };
 
           return updated;
         }
 
-        return [...previous, normalized].sort(comparePositions);
+        return [...previous, normalized].sort(
+          comparePositions
+        );
       });
 
       onMessageReceived(incoming);
     },
-    [conversationId, onMessageReceived]
+    [
+      conversationId,
+      onMessageReceived,
+      removeDeletedMessage,
+    ]
   );
 
   const enqueueBroadcast = useCallback(
     (message: DirectMessagePayload) => {
       if (
         !mountedRef.current ||
-        message.conversationId !== conversationId
+        message.conversationId !== conversationId ||
+        deletedMessageIdsRef.current.has(message.id)
       ) {
         return;
       }
@@ -274,75 +398,89 @@ export function useChatRealtime({
     [conversationId]
   );
 
-  const flushPendingBroadcasts = useCallback(async () => {
-    const channel = channelRef.current;
+  const flushPendingBroadcasts =
+    useCallback(async () => {
+      const channel = channelRef.current;
 
-    if (
-      !mountedRef.current ||
-      !channelReadyRef.current ||
-      !channel ||
-      flushingChannelRef.current === channel
-    ) {
-      return;
-    }
-
-    flushingChannelRef.current = channel;
-
-    try {
-      while (
-        mountedRef.current &&
-        channelReadyRef.current &&
-        channelRef.current === channel &&
-        pendingBroadcastsRef.current.length > 0
+      if (
+        !mountedRef.current ||
+        !channelReadyRef.current ||
+        !channel ||
+        flushingChannelRef.current === channel
       ) {
-        const next = pendingBroadcastsRef.current[0];
+        return;
+      }
 
-        try {
-          const status = await channel.send({
-            type: "broadcast",
-            event: "new_message",
-            payload: next,
-          });
+      flushingChannelRef.current = channel;
 
-          if (status !== "ok") {
+      try {
+        while (
+          mountedRef.current &&
+          channelReadyRef.current &&
+          channelRef.current === channel &&
+          pendingBroadcastsRef.current.length > 0
+        ) {
+          const next =
+            pendingBroadcastsRef.current[0];
+
+          if (
+            deletedMessageIdsRef.current.has(next.id)
+          ) {
+            pendingBroadcastsRef.current.shift();
+            continue;
+          }
+
+          try {
+            const status = await channel.send({
+              type: "broadcast",
+              event: "new_message",
+              payload: next,
+            });
+
+            if (status !== "ok") {
+              console.error(
+                "[DM Realtime] Queued broadcast was not acknowledged:",
+                status,
+                next.id
+              );
+              break;
+            }
+
+            if (
+              !mountedRef.current ||
+              channelRef.current !== channel
+            ) {
+              break;
+            }
+
+            if (
+              pendingBroadcastsRef.current[0] === next
+            ) {
+              pendingBroadcastsRef.current.shift();
+            }
+          } catch (error) {
             console.error(
-              "[DM Realtime] Queued broadcast was not acknowledged:",
-              status,
-              next.id
+              "[DM Realtime] Queued broadcast failed:",
+              error
             );
             break;
           }
-
-          if (
-            !mountedRef.current ||
-            channelRef.current !== channel
-          ) {
-            break;
-          }
-
-          if (pendingBroadcastsRef.current[0] === next) {
-            pendingBroadcastsRef.current.shift();
-          }
-        } catch (error) {
-          console.error(
-            "[DM Realtime] Queued broadcast failed:",
-            error
-          );
-          break;
+        }
+      } finally {
+        if (
+          flushingChannelRef.current === channel
+        ) {
+          flushingChannelRef.current = null;
         }
       }
-    } finally {
-      if (flushingChannelRef.current === channel) {
-        flushingChannelRef.current = null;
-      }
-    }
-  }, []);
+    }, []);
 
   const broadcastSafely = useCallback(
     async (message: DirectMessagePayload) => {
       if (
         !mountedRef.current ||
-        message.conversationId !== conversationId
+        message.conversationId !== conversationId ||
+        deletedMessageIdsRef.current.has(message.id)
       ) {
         return;
       }
@@ -376,25 +514,42 @@ export function useChatRealtime({
           enqueueBroadcast(message);
         }
       } catch (error) {
-        console.error("[DM Realtime] Broadcast failed:", error);
+        console.error(
+          "[DM Realtime] Broadcast failed:",
+          error
+        );
         enqueueBroadcast(message);
       }
     },
-    [conversationId, enqueueBroadcast, flushPendingBroadcasts]
+    [
+      conversationId,
+      enqueueBroadcast,
+      flushPendingBroadcasts,
+    ]
   );
 
   const handleMessageSent = useCallback(
     (message: DirectMessagePayload) => {
-      if (message.conversationId !== conversationId) return;
+      if (
+        message.conversationId !== conversationId
+      ) {
+        return;
+      }
 
       appendOrUpdateMessage(message);
 
       void broadcastSafely({
         ...message,
-        createdAt: new Date(message.createdAt).toISOString(),
+        createdAt: new Date(
+          message.createdAt
+        ).toISOString(),
       });
     },
-    [appendOrUpdateMessage, broadcastSafely, conversationId]
+    [
+      appendOrUpdateMessage,
+      broadcastSafely,
+      conversationId,
+    ]
   );
 
   const handleTypingChange = useCallback(
@@ -402,7 +557,9 @@ export function useChatRealtime({
       if (blockStatus !== "allowed") return;
 
       const channel = channelRef.current;
-      if (!channelReadyRef.current || !channel) return;
+      if (!channelReadyRef.current || !channel) {
+        return;
+      }
 
       void channel
         .send({
@@ -424,36 +581,43 @@ export function useChatRealtime({
     [blockStatus, conversationId, currentUserId]
   );
 
-  const handleMarkAsRead = useCallback(async () => {
-    try {
-      const result = await markConversationAsRead(conversationId);
-      const channel = channelRef.current;
-
-      if (channelReadyRef.current && channel) {
-        const status = await channel.send({
-          type: "broadcast",
-          event: "read_notice",
-          payload: {
-            conversationId,
-            readerId: currentUserId,
-            readAt: result.lastReadAt.toISOString(),
-          },
-        });
-
-        if (status !== "ok") {
-          console.warn(
-            "[DM Realtime] Read notice was not acknowledged:",
-            status
+  const handleMarkAsRead = useCallback(
+    async () => {
+      try {
+        const result =
+          await markConversationAsRead(
+            conversationId
           );
+        const channel = channelRef.current;
+
+        if (channelReadyRef.current && channel) {
+          const status = await channel.send({
+            type: "broadcast",
+            event: "read_notice",
+            payload: {
+              conversationId,
+              readerId: currentUserId,
+              readAt:
+                result.lastReadAt.toISOString(),
+            },
+          });
+
+          if (status !== "ok") {
+            console.warn(
+              "[DM Realtime] Read notice was not acknowledged:",
+              status
+            );
+          }
         }
+      } catch (error) {
+        console.error(
+          "[DM Realtime] Failed to mark as read:",
+          error
+        );
       }
-    } catch (error) {
-      console.error(
-        "[DM Realtime] Failed to mark as read:",
-        error
-      );
-    }
-  }, [conversationId, currentUserId]);
+    },
+    [conversationId, currentUserId]
+  );
 
   useEffect(() => {
     void handleMarkAsRead();
@@ -461,16 +625,21 @@ export function useChatRealtime({
 
   useEffect(() => {
     mountedRef.current = true;
+
     let disposed = false;
     let reconciling = false;
     let reconcileAgain = false;
 
-    const channel = supabase.channel(`dm:${conversationId}`, {
-      config: {
-        presence: { key: currentUserId },
-        broadcast: { self: false, ack: true },
-      },
-    });
+    const channel = supabase.channel(
+      `dm:${conversationId}`,
+      {
+        config: {
+          private: false,
+          presence: { key: currentUserId },
+          broadcast: { self: false, ack: true },
+        },
+      }
+    );
 
     channelRef.current = channel;
     channelReadyRef.current = false;
@@ -501,11 +670,11 @@ export function useChatRealtime({
             }
 
             recoveryCursorRef.current =
-              page.nextCursor ?? recoveryCursorRef.current;
+              page.nextCursor ??
+              recoveryCursorRef.current;
 
             hasMore = page.hasMore;
 
-            // از حلقهٔ بی‌پایان در پاسخ ناسازگار سرور جلوگیری می‌کند.
             if (hasMore && !page.nextCursor) {
               console.error(
                 "[DM Realtime] Recovery page hasMore=true without nextCursor."
@@ -525,7 +694,9 @@ export function useChatRealtime({
     };
 
     const handleReconnectOpportunity = () => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible"
+      ) {
         void reconcile();
         void flushPendingBroadcasts();
       }
@@ -546,13 +717,83 @@ export function useChatRealtime({
           | DirectMessagePayload
           | undefined;
 
-        if (message?.conversationId !== conversationId) return;
+        if (
+          message?.conversationId !==
+          conversationId
+        ) {
+          return;
+        }
 
         appendOrUpdateMessage(message);
 
-        if (message.senderId !== currentUserId) {
+        if (
+          message.senderId !== currentUserId
+        ) {
           void handleMarkAsRead();
         }
+      }
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "message_reaction_updated" },
+      ({ payload }) => {
+        if (disposed) return;
+
+        const reaction = payload as
+          | {
+              conversationId?: string;
+              messageId?: string;
+              userId?: string;
+              emoji?: string | null;
+            }
+          | undefined;
+
+        if (
+          reaction?.conversationId !== conversationId ||
+          typeof reaction.messageId !== "string" ||
+          typeof reaction.userId !== "string"
+        ) {
+          return;
+        }
+
+        applyReactionUpdate({
+          messageId: reaction.messageId,
+          userId: reaction.userId,
+          emoji:
+            typeof reaction.emoji === "string"
+              ? reaction.emoji
+              : null,
+        });
+      }
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "message_deleted" },
+      ({ payload }) => {
+        if (disposed) return;
+
+        const deletion = payload as
+          | {
+              conversationId?: string;
+              messageId?: string;
+            }
+          | undefined;
+
+        if (
+          deletion?.conversationId !==
+            conversationId ||
+          typeof deletion.messageId !==
+            "string" ||
+          !deletion.messageId
+        ) {
+          return;
+        }
+
+        removeDeletedMessage(
+          deletion.messageId
+        );
       }
     );
 
@@ -571,20 +812,28 @@ export function useChatRealtime({
           | undefined;
 
         if (
-          notice?.conversationId !== conversationId ||
+          notice?.conversationId !==
+            conversationId ||
           notice.readerId !== recipientId ||
           !notice.readAt
         ) {
           return;
         }
 
-        const readTime = new Date(notice.readAt).getTime();
-        if (Number.isNaN(readTime)) return;
+        const readTime = new Date(
+          notice.readAt
+        ).getTime();
+
+        if (Number.isNaN(readTime)) {
+          return;
+        }
 
         setMessages((previous) =>
           previous.map((message) =>
             message.senderId === currentUserId &&
-            new Date(message.createdAt).getTime() <= readTime
+            new Date(
+              message.createdAt
+            ).getTime() <= readTime
               ? {
                   ...message,
                   readAt: notice.readAt,
@@ -602,45 +851,73 @@ export function useChatRealtime({
       ({ payload }) => {
         if (
           disposed ||
-          payload?.conversationId !== conversationId ||
+          payload?.conversationId !==
+            conversationId ||
           payload?.userId !== recipientId
         ) {
           return;
         }
 
-        setIsRecipientTyping(Boolean(payload.isTyping));
+        setIsRecipientTyping(
+          Boolean(payload.isTyping)
+        );
 
         if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current);
+          clearTimeout(
+            typingTimeoutRef.current
+          );
         }
 
         if (payload.isTyping) {
-          typingTimeoutRef.current = setTimeout(() => {
-            setIsRecipientTyping(false);
-          }, 3500);
+          typingTimeoutRef.current =
+            setTimeout(() => {
+              setIsRecipientTyping(false);
+            }, 3500);
         }
       }
     );
 
     channel
-      .on("presence", { event: "sync" }, () => {
-        if (disposed) return;
+      .on(
+        "presence",
+        { event: "sync" },
+        () => {
+          if (disposed) return;
 
-        const state = channel.presenceState();
-        setIsRecipientOnline(
-          Object.keys(state).includes(recipientId)
-        );
-      })
-      .on("presence", { event: "join" }, ({ key }) => {
-        if (!disposed && key === recipientId) {
-          setIsRecipientOnline(true);
+          const state =
+            channel.presenceState();
+
+          setIsRecipientOnline(
+            Object.keys(state).includes(
+              recipientId
+            )
+          );
         }
-      })
-      .on("presence", { event: "leave" }, ({ key }) => {
-        if (!disposed && key === recipientId) {
-          setIsRecipientOnline(false);
+      )
+      .on(
+        "presence",
+        { event: "join" },
+        ({ key }) => {
+          if (
+            !disposed &&
+            key === recipientId
+          ) {
+            setIsRecipientOnline(true);
+          }
         }
-      });
+      )
+      .on(
+        "presence",
+        { event: "leave" },
+        ({ key }) => {
+          if (
+            !disposed &&
+            key === recipientId
+          ) {
+            setIsRecipientOnline(false);
+          }
+        }
+      );
 
     channel
       .on(
@@ -657,11 +934,19 @@ export function useChatRealtime({
           const message =
             row as unknown as DirectMessagePayload;
 
-          if (message?.conversationId !== conversationId) return;
+          if (
+            message?.conversationId !==
+            conversationId
+          ) {
+            return;
+          }
 
           appendOrUpdateMessage(message);
 
-          if (message.senderId !== currentUserId) {
+          if (
+            message.senderId !==
+            currentUserId
+          ) {
             void handleMarkAsRead();
           }
         }
@@ -680,7 +965,10 @@ export function useChatRealtime({
           const message =
             row as unknown as DirectMessagePayload;
 
-          if (message?.conversationId === conversationId) {
+          if (
+            message?.conversationId ===
+            conversationId
+          ) {
             appendOrUpdateMessage(message);
           }
         }
@@ -695,14 +983,31 @@ export function useChatRealtime({
         ({ old: row }) => {
           if (disposed) return;
 
-          const deletedId = (row as { id?: string })?.id;
+          const deletedId = (
+            row as { id?: string }
+          )?.id;
+
           if (!deletedId) return;
 
-          setMessages((previous) =>
-            previous.filter(
-              (message) => message.id !== deletedId
-            )
-          );
+          setMessages((previous) => {
+            if (
+              !previous.some(
+                (message) =>
+                  message.id === deletedId
+              )
+            ) {
+              return previous;
+            }
+
+            deletedMessageIdsRef.current.add(
+              deletedId
+            );
+
+            return previous.filter(
+              (message) =>
+                message.id !== deletedId
+            );
+          });
         }
       );
 
@@ -713,7 +1018,10 @@ export function useChatRealtime({
         channelReadyRef.current = true;
 
         void channel
-          .track({ online_at: new Date().toISOString() })
+          .track({
+            online_at:
+              new Date().toISOString(),
+          })
           .catch((trackError) => {
             console.error(
               "[DM Realtime] Presence tracking failed:",
@@ -749,7 +1057,10 @@ export function useChatRealtime({
       "focus",
       handleReconnectOpportunity
     );
-    window.addEventListener("online", handleOnline);
+    window.addEventListener(
+      "online",
+      handleOnline
+    );
 
     return () => {
       disposed = true;
@@ -758,7 +1069,9 @@ export function useChatRealtime({
       pendingBroadcastsRef.current = [];
 
       if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
+        clearTimeout(
+          typingTimeoutRef.current
+        );
       }
 
       document.removeEventListener(
@@ -769,13 +1082,19 @@ export function useChatRealtime({
         "focus",
         handleReconnectOpportunity
       );
-      window.removeEventListener("online", handleOnline);
+      window.removeEventListener(
+        "online",
+        handleOnline
+      );
 
       if (channelRef.current === channel) {
         channelRef.current = null;
       }
 
-      if (flushingChannelRef.current === channel) {
+      if (
+        flushingChannelRef.current ===
+        channel
+      ) {
         flushingChannelRef.current = null;
       }
 
@@ -786,24 +1105,34 @@ export function useChatRealtime({
     currentUserId,
     recipientId,
     appendOrUpdateMessage,
+    removeDeletedMessage,
     flushPendingBroadcasts,
     handleMarkAsRead,
+    applyReactionUpdate,
   ]);
 
-  const handleDeleteConversation = useCallback(() => {
-    startDeleteConversationTransition(async () => {
-      try {
-        await deleteConversation(conversationId);
-        router.push(`/${locale}/messages`);
-        router.refresh();
-      } catch (error) {
-        console.error(
-          "Failed to delete conversation:",
-          error
-        );
-      }
-    });
-  }, [conversationId, locale, router]);
+  const handleDeleteConversation =
+    useCallback(() => {
+      startDeleteConversationTransition(
+        async () => {
+          try {
+            await deleteConversation(
+              conversationId
+            );
+
+            router.push(
+              `/${locale}/messages`
+            );
+            router.refresh();
+          } catch (error) {
+            console.error(
+              "Failed to delete conversation:",
+              error
+            );
+          }
+        }
+      );
+    }, [conversationId, locale, router]);
 
   return {
     messages,
@@ -816,5 +1145,6 @@ export function useChatRealtime({
     handleTypingChange,
     handleDeleteConversation,
     isDeletingConversation,
+    handleToggleReaction,
   };
 }

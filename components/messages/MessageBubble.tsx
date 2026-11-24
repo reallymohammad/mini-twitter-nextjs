@@ -1,127 +1,352 @@
-// components/messages/MessageBubble.tsx
 "use client";
 
-import { useTransition } from "react";
-import Image from "next/image";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { format } from "date-fns";
-import { Trash2, Loader2, Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck } from "lucide-react";
+
+import {
+  deleteDirectMessage,
+  deleteMessageForMe,
+} from "@/lib/dm/actions";
 import { cn } from "@/lib/utils";
-import { deleteDirectMessage } from "@/lib/dm/actions";
 
-interface MessageBubbleProps {
-  message: {
-    id: string;
-    senderId: string;
-    content: string | null;
-    mediaUrls: string[];
-    createdAt: Date | string;
-    isSeen?: boolean;
-  };
-  isMine: boolean;
-}
+import MessageContent from "./message-bubble/MessageContent";
+import MessageActions from "./message-bubble/MessageActions";
+import MessageReactions from "./message-bubble/MessageReactions";
+import DeleteMessageDialog from "./message-bubble/DeleteMessageDialog";
+import type {
+  DeleteScope,
+  MessageBubbleProps,
+} from "./message-bubble/types";
 
-export default function MessageBubble({ message, isMine }: MessageBubbleProps) {
+export type { MessageBubbleProps } from "./message-bubble/types";
+
+export default function MessageBubble({
+  message,
+  currentUserId,
+  isMine,
+  onDeleted,
+  selectionMode,
+  isSelected,
+  onToggleSelected,
+  onStartSelection,
+  onToggleReaction,
+  onReply,
+  onScrollToMessage,
+}: MessageBubbleProps) {
+  const t = useTranslations("Settings.Messages");
   const router = useRouter();
+
   const [isDeleting, startDeleteTransition] = useTransition();
+  const [isReactionPending, startReactionTransition] =
+    useTransition();
+
+  const [showOptions, setShowOptions] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] =
+    useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const [deleteScope, setDeleteScope] =
+    useState<DeleteScope | null>(null);
+  const [deleteError, setDeleteError] =
+    useState<string | null>(null);
+  const [isHidden, setIsHidden] = useState(false);
+
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showOptions && !showReactionPicker) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !optionsRef.current?.contains(event.target) &&
+        !pickerRef.current?.contains(event.target)
+      ) {
+        setShowOptions(false);
+        setShowReactionPicker(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setShowOptions(false);
+        setShowReactionPicker(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handlePointerDown
+      );
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showOptions, showReactionPicker]);
 
   const createdAt = new Date(message.createdAt);
-  const formattedTime = Number.isNaN(createdAt.getTime()) ? "" : format(createdAt, "HH:mm");
+  const formattedTime = Number.isNaN(createdAt.getTime())
+    ? ""
+    : format(createdAt, "HH:mm");
 
-  const handleDelete = () => {
-    if (confirm("آیا از حذف این پیام اطمینان دارید؟")) {
-      startDeleteTransition(async () => {
-        try {
-          await deleteDirectMessage(message.id);
-          router.refresh();
-        } catch (err) {
-          console.error("Failed to delete message:", err);
-        }
-      });
+  async function handleCopy() {
+    if (!message.content) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message.content);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = message.content;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+
+      setIsCopied(true);
+      setShowOptions(false);
+
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+
+      copyTimeoutRef.current = setTimeout(() => {
+        setIsCopied(false);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy text:", error);
     }
-  };
+  }
+
+  function handleTriggerReply() {
+    setShowOptions(false);
+
+    const senderName =
+      message.sender?.fullName ||
+      message.sender?.username ||
+      (isMine ? "You" : "User");
+
+    onReply?.({
+      id: message.id,
+      senderName,
+      content: message.content,
+      hasMedia: message.mediaUrls.length > 0,
+    });
+  }
+
+  function handleEmojiClick(emoji: string) {
+    if (isReactionPending || !onToggleReaction) return;
+
+    startReactionTransition(async () => {
+      try {
+        await onToggleReaction(message.id, emoji);
+        setShowReactionPicker(false);
+        setShowOptions(false);
+      } catch (error) {
+        console.error("Failed to toggle reaction:", error);
+      }
+    });
+  }
+
+  function openDeleteConfirmation(scope: DeleteScope) {
+    if (isDeleting || (scope === "everyone" && !isMine)) {
+      return;
+    }
+
+    setDeleteError(null);
+    setShowOptions(false);
+    setDeleteScope(scope);
+  }
+
+  function closeDeleteConfirmation() {
+    if (!isDeleting) {
+      setDeleteScope(null);
+    }
+  }
+
+  function confirmDelete() {
+    if (!deleteScope || isDeleting) return;
+
+    const scope = deleteScope;
+
+    startDeleteTransition(async () => {
+      try {
+        if (scope === "everyone") {
+          await deleteDirectMessage(message.id);
+        } else {
+          await deleteMessageForMe(message.id);
+        }
+
+        setDeleteScope(null);
+        setIsHidden(true);
+        onDeleted?.(message.id);
+        router.refresh();
+      } catch (error) {
+        console.error("Failed to delete message:", error);
+        setDeleteError(t("deleteMessageError"));
+      }
+    });
+  }
+
+  if (isHidden) return null;
+
+  const content = (
+    <MessageContent
+      message={message}
+      isMine={isMine}
+      selectionMode={selectionMode}
+      isSelected={isSelected}
+      onScrollToMessage={onScrollToMessage}
+    />
+  );
 
   return (
-    <div
-      className={cn(
-        "group relative mb-3 flex max-w-[82%] flex-col sm:max-w-[70%]",
-        isMine ? "ml-auto items-end" : "mr-auto items-start"
-      )}
-    >
-      <div className="flex items-center gap-1.5">
-        {/* دکمه سطل زباله برای پیام‌های ارسالی کاربر */}
-        {isMine && (
-          <button
-            type="button"
-            disabled={isDeleting}
-            onClick={handleDelete}
-            aria-label="حذف پیام"
-            className="opacity-0 transition-opacity duration-200 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive rounded-full hover:bg-muted"
-          >
-            {isDeleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-          </button>
+    <>
+      <div
+        id={`message-${message.id}`}
+        className={cn(
+          "group relative mb-3 flex max-w-[82%] flex-col sm:max-w-[70%]",
+          isMine ? "ml-auto items-end" : "mr-auto items-start"
         )}
+      >
+        {selectionMode ? (
+          <div
+            role="checkbox"
+            tabIndex={0}
+            aria-label={t("selectMessage")}
+            aria-checked={isSelected}
+            onClick={() => onToggleSelected(message.id)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
 
-        <div
-          className={cn(
-            "overflow-hidden rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
-            isMine
-              ? "rounded-br-sm bg-primary text-primary-foreground"
-              : "rounded-bl-sm border border-border bg-muted text-foreground"
-          )}
-        >
-          {message.mediaUrls.length > 0 && (
-            <div
+              if (
+                event.key === "Enter" ||
+                event.key === " "
+              ) {
+                event.preventDefault();
+                onToggleSelected(message.id);
+              }
+            }}
+            className="flex max-w-full cursor-pointer items-center gap-2 rounded-xl text-start"
+          >
+            <span
+              aria-hidden="true"
               className={cn(
-                "grid gap-1",
-                message.mediaUrls.length > 1 && "grid-cols-2",
-                message.content && "mb-2"
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+                isSelected
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/60 bg-background"
               )}
             >
-              {message.mediaUrls.map((mediaUrl, index) => (
-                <div
-                  key={`${mediaUrl}-${index}`}
-                  className="relative aspect-[4/3] w-[min(14rem,70vw)] overflow-hidden rounded-xl bg-muted"
-                >
-                  <Image
-                    src={mediaUrl}
-                    alt={`Message attachment ${index + 1}`}
-                    fill
-                    sizes="(max-width: 640px) 70vw, 224px"
-                    className="object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>}
-        </div>
-      </div>
-
-      {formattedTime && (
-        <div className="mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
-          <time dateTime={createdAt.toISOString()}>{formattedTime}</time>
-
-          {/* وضعیت سین برای پیام‌های ارسالی */}
-          {isMine && (
-            <span
-              className="inline-flex items-center"
-              title={message.isSeen ? "خوانده شد" : "ارسال شد"}
-            >
-              {message.isSeen ? (
-                <CheckCheck className="h-3.5 w-3.5 text-sky-500" />
-              ) : (
-                <Check className="h-3.5 w-3.5 text-muted-foreground" />
+              {isSelected && (
+                <Check className="h-3.5 w-3.5" />
               )}
             </span>
-          )}
-        </div>
+
+            {content}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <MessageActions
+              optionsRef={optionsRef}
+              isMine={isMine}
+              hasContent={Boolean(message.content)}
+              isDeleting={isDeleting}
+              isCopied={isCopied}
+              showOptions={showOptions}
+              onToggleOptions={() =>
+                setShowOptions((previous) => !previous)
+              }
+              onShowReactionPicker={() => {
+                setShowOptions(false);
+                setShowReactionPicker(true);
+              }}
+              onReply={handleTriggerReply}
+              onCopy={handleCopy}
+              onStartSelection={() => {
+                setShowOptions(false);
+                onStartSelection(message.id);
+              }}
+              onOpenDelete={openDeleteConfirmation}
+            />
+
+            <div className="flex flex-col gap-1">
+              {content}
+
+              <MessageReactions
+                reactions={message.reactions}
+                currentUserId={currentUserId}
+                isMine={isMine}
+                showReactionPicker={showReactionPicker}
+                isReactionPending={isReactionPending}
+                pickerRef={pickerRef}
+                onEmojiClick={handleEmojiClick}
+              />
+            </div>
+          </div>
+        )}
+
+        {deleteError && (
+          <p
+            role="alert"
+            className="mt-1 text-xs text-destructive"
+          >
+            {deleteError}
+          </p>
+        )}
+
+        {formattedTime && (
+          <div className="mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
+            <time dateTime={createdAt.toISOString()}>
+              {formattedTime}
+            </time>
+
+            {isMine && (
+              <span
+                className="inline-flex items-center"
+                title={message.isSeen ? t("seen") : t("sent")}
+              >
+                {message.isSeen ? (
+                  <CheckCheck className="h-3.5 w-3.5 text-sky-500" />
+                ) : (
+                  <Check className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {deleteScope && (
+        <DeleteMessageDialog
+          messageId={message.id}
+          scope={deleteScope}
+          isDeleting={isDeleting}
+          onClose={closeDeleteConfirmation}
+          onConfirm={confirmDelete}
+        />
       )}
-    </div>
+    </>
   );
 }

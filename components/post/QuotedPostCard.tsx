@@ -38,8 +38,18 @@ interface QuotedPostCardProps {
 export function QuotedBadge({ badge }: { badge?: Badge }) {
   if (!badge || badge === "NONE") return null;
 
+  // هماهنگ‌سازی تیک آبی با پروفایل (size-4.5 یا 18px و رنگ text-blue-500 بدون fill)
+  if (badge === "BLUE") {
+    return (
+      <BadgeCheck
+        size={18}
+        className="inline-block shrink-0 text-blue-500"
+      />
+    );
+  }
+
   const colorMap: Record<Badge, string> = {
-    BLUE: "text-sky-500 fill-sky-500",
+    BLUE: "text-blue-500",
     GOLD: "text-amber-400 fill-amber-400",
     GREY: "text-neutral-400 fill-neutral-400",
     DEVELOPER: "text-emerald-500 fill-emerald-500",

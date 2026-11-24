@@ -10,6 +10,7 @@ import { ChevronDown } from "lucide-react";
 
 import MessageGroup from "./MessageGroup";
 import type { MessageItem } from "./useChatRealtime";
+import type { ReplyTarget } from "../MessageInput";
 
 interface MessageListProps {
   messages: MessageItem[];
@@ -20,6 +21,14 @@ interface MessageListProps {
   onScroll: UIEventHandler<HTMLDivElement>;
   showScrollBottomButton: boolean;
   onScrollToBottom: () => void;
+  onMessageDeleted: (messageId: string) => void;
+  selectionMode: boolean;
+  selectedMessageIds: ReadonlySet<string>;
+  onToggleMessageSelected: (messageId: string) => void;
+  onStartSelection: (messageId: string) => void;
+  onToggleReaction: (messageId: string, emoji: string) => Promise<unknown>;
+  onReply: (target: ReplyTarget) => void;
+  onScrollToMessage: (messageId: string) => void;
 }
 
 function getLocalDateKey(date: Date) {
@@ -39,6 +48,14 @@ function MessageList({
   onScroll,
   showScrollBottomButton,
   onScrollToBottom,
+  onMessageDeleted,
+  selectionMode,
+  selectedMessageIds,
+  onToggleMessageSelected,
+  onStartSelection,
+  onToggleReaction,
+  onReply,
+  onScrollToMessage,
 }: MessageListProps) {
   const groupedMessages = useMemo(() => {
     const groups: {
@@ -67,8 +84,9 @@ function MessageList({
         year: "numeric",
       });
 
-      if (dateKey === todayKey) dateLabel = "Today";
-      else if (dateKey === yesterdayKey) {
+      if (dateKey === todayKey) {
+        dateLabel = "Today";
+      } else if (dateKey === yesterdayKey) {
         dateLabel = "Yesterday";
       }
 
@@ -101,6 +119,14 @@ function MessageList({
             dateLabel={group.dateLabel}
             items={group.items}
             currentUserId={currentUserId}
+            onMessageDeleted={onMessageDeleted}
+            selectionMode={selectionMode}
+            selectedMessageIds={selectedMessageIds}
+            onToggleMessageSelected={onToggleMessageSelected}
+            onStartSelection={onStartSelection}
+            onToggleReaction={onToggleReaction}
+            onReply={onReply}
+            onScrollToMessage={onScrollToMessage}
           />
         ))}
 

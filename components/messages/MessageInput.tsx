@@ -7,10 +7,17 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { SendHorizontal, Loader2 } from "lucide-react";
+import { SendHorizontal, Loader2, Reply, X } from "lucide-react";
 
 import { sendDirectMessage } from "@/lib/dm/actions";
 import type { DirectMessagePayload } from "@/lib/dm/types";
+
+export interface ReplyTarget {
+  id: string;
+  senderName: string;
+  content: string | null;
+  hasMedia?: boolean;
+}
 
 interface MessageInputProps {
   conversationId: string;
@@ -19,6 +26,8 @@ interface MessageInputProps {
   onTypingChange?: (isTyping: boolean) => void;
   onMessageSent?: (message: DirectMessagePayload) => void;
   onBlockError?: () => void;
+  replyingTo?: ReplyTarget | null;
+  onCancelReply?: () => void;
 }
 
 export default function MessageInput({
@@ -28,14 +37,24 @@ export default function MessageInput({
   onTypingChange,
   onMessageSent,
   onBlockError,
+  replyingTo,
+  onCancelReply,
 }: MessageInputProps) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const sendingRef = useRef(false);
   const isTypingRef = useRef(false);
   const lastTypingSentRef = useRef(0);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // فوکوس خودکار روی اینپوت هنگام انتخاب ریپلای
+  useEffect(() => {
+    if (replyingTo) {
+      inputRef.current?.focus();
+    }
+  }, [replyingTo]);
 
   const stopTyping = useCallback(() => {
     if (stopTimerRef.current) {
@@ -85,6 +104,8 @@ export default function MessageInput({
     if (!draft.trim() || isPending || sendingRef.current) return;
 
     const currentText = draft.trim();
+    const replyTargetId = replyingTo?.id;
+
     sendingRef.current = true;
     stopTyping();
 
@@ -93,6 +114,7 @@ export default function MessageInput({
         const result = await sendDirectMessage({
           conversationId,
           content: currentText,
+          replyToId: replyTargetId,
         });
 
         if (result.status === "blocked") {
@@ -100,19 +122,17 @@ export default function MessageInput({
           return;
         }
 
-        // شکست callback نباید پیام ذخیره‌شده را «ارسال‌نشده» جلوه دهد.
         try {
-          onMessageSent?.(result.message);
+          onMessageSent?.(result.message as unknown as DirectMessagePayload);
         } catch (error) {
           console.error("[DM Input] Post-send UI callback failed:", error);
         }
 
         onDraftChange("");
+        onCancelReply?.();
         router.refresh();
       } catch (error) {
-        // فقط خطاهای غیرمنتظره اینجا ثبت می‌شوند.
         console.error("[DM Input] Send failed:", error);
-
         alert(
           error instanceof Error
             ? error.message
@@ -130,13 +150,44 @@ export default function MessageInput({
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSend();
+    } else if (event.key === "Escape" && replyingTo) {
+      onCancelReply?.();
     }
   };
 
   return (
-    <div className="border-t border-border bg-background/80 p-3 backdrop-blur">
-      <div className="mx-auto flex max-w-4xl items-center gap-2">
+    <div className="flex flex-col gap-2">
+      {/* بنر پیش‌نمایش ریپلای (Telegram-Style) */}
+      {replyingTo && (
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-1.5 backdrop-blur-sm transition-all animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Reply className="h-4 w-4 -scale-x-100" />
+            </div>
+            <div className="flex min-w-0 flex-col text-xs">
+              <span className="font-semibold text-primary truncate">
+                {replyingTo.senderName}
+              </span>
+              <span className="truncate text-muted-foreground">
+                {replyingTo.content || (replyingTo.hasMedia ? "📷 پیوست چندرسانه‌ای" : "...")}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            aria-label="Cancel reply"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ورودی متن پیام */}
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-2">
         <input
+          ref={inputRef}
           type="text"
           value={draft}
           onChange={handleChange}

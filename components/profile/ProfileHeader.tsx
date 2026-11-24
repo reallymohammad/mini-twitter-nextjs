@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
+  BadgeCheck,
   CalendarDays,
   MapPin,
   Link2,
@@ -27,6 +28,7 @@ interface User {
   id: string;
   fullName: string;
   username: string;
+  badge?: string | null | boolean;
   bio?: string | null;
   avatarUrl?: string | null;
   coverImageUrl?: string | null;
@@ -75,6 +77,7 @@ export default function ProfileHeader({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const blockExists = isBlocked || isBlockedByThem;
+  const hasVerifiedBadge = Boolean(user.badge);
 
   useEffect(() => {
     setIsBlocked(hasBlockedThem);
@@ -202,9 +205,18 @@ export default function ProfileHeader({
         <ProfileBackButton locale={locale} isOwner={isOwner} />
 
         <div className="min-w-0">
-          <p className="truncate text-base font-bold">
-            {user.fullName || user.username}
-          </p>
+          <div className="flex min-w-0 items-center gap-1">
+            <p className="truncate text-base font-bold">
+              {user.fullName || user.username}
+            </p>
+            {hasVerifiedBadge && (
+              <BadgeCheck
+                size={16}
+                className="shrink-0 text-blue-500"
+                aria-label="Verified account"
+              />
+            )}
+          </div>
           <p className="truncate text-xs text-muted-foreground">
             @{user.username}
           </p>
@@ -292,7 +304,7 @@ export default function ProfileHeader({
                           )}
                           {isMuted
                             ? t("unmuteAccount")
-                            : t("muteAccount")} {" "}
+                            : t("muteAccount")}{" "}
                           @{user.username}
                         </button>
                       )}
@@ -311,7 +323,7 @@ export default function ProfileHeader({
                         )}
                         {isBlocked
                           ? t("unblockAccount")
-                          : t("blockAccount")} {" "}
+                          : t("blockAccount")}{" "}
                         @{user.username}
                       </button>
                     </div>
@@ -368,6 +380,14 @@ export default function ProfileHeader({
 
         <div className="flex items-center gap-1.5">
           <h1 className="text-lg font-bold leading-tight">{user.fullName}</h1>
+
+          {hasVerifiedBadge && (
+            <BadgeCheck
+              size={18}
+              className="shrink-0 text-blue-500"
+              aria-label="Verified account"
+            />
+          )}
 
           {user.isPrivate && (
             <Lock
