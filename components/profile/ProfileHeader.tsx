@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import type { Badge } from "@prisma/client";
 import {
   BadgeCheck,
   CalendarDays,
@@ -20,6 +22,7 @@ import {
   Volume2,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import DirectMessageButton from "@/components/profile/DirectMessageButton";
 import ProfileBackButton from "@/components/profile/ProfileBackButton";
 import FollowButton from "@/components/user/FollowButton";
@@ -28,7 +31,7 @@ interface User {
   id: string;
   fullName: string;
   username: string;
-  badge?: string | null | boolean;
+  badge?: Badge | null;
   bio?: string | null;
   avatarUrl?: string | null;
   coverImageUrl?: string | null;
@@ -51,6 +54,229 @@ interface Props {
   canSendDirectMessage: boolean;
 }
 
+type BadgeKey = "blue" | "gold" | "grey" | "developer";
+
+const badgeConfig: Record<Badge, { className: string; key: BadgeKey } | null> = {
+  NONE: null,
+  BLUE: {
+    className: "text-blue-500",
+    key: "blue",
+  },
+  GOLD: {
+    className: "text-amber-400",
+    key: "gold",
+  },
+  GREY: {
+    className: "text-neutral-400",
+    key: "grey",
+  },
+  DEVELOPER: {
+    className: "text-emerald-500",
+    key: "developer",
+  },
+};
+
+interface VerifiedBadgeProps {
+  size: number;
+  className?: string;
+  description: string;
+  triggerLabel: string;
+}
+
+function VerifiedBadge({
+  size,
+  className,
+  description,
+  triggerLabel,
+}: VerifiedBadgeProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "top" | "bottom";
+  } | null>(null);
+
+  const tooltipId = useId();
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isVisible = isOpen || isHovered || isFocused;
+
+  function clearCloseTimer() {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  function closeTooltip() {
+    clearCloseTimer();
+    setIsOpen(false);
+    setIsHovered(false);
+    setIsFocused(false);
+  }
+
+  function handlePointerEnter(event: React.PointerEvent) {
+    if (event.pointerType !== "mouse") return;
+    clearCloseTimer();
+    setIsHovered(true);
+  }
+
+  function handlePointerLeave(event: React.PointerEvent) {
+    if (event.pointerType !== "mouse") return;
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 120);
+  }
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target as Node;
+
+      if (
+        !wrapperRef.current?.contains(target) &&
+        !tooltipRef.current?.contains(target)
+      ) {
+        closeTooltip();
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeTooltip();
+        triggerRef.current?.blur();
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isVisible]);
+
+  useLayoutEffect(() => {
+    if (!isVisible || !triggerRef.current) return;
+
+    function updatePosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const tooltipRect = tooltipRef.current?.getBoundingClientRect();
+      const viewportPadding = 8;
+      const tooltipWidth = Math.min(
+        tooltipRect?.width ?? 288,
+        window.innerWidth - viewportPadding * 2,
+      );
+      const tooltipHeight = tooltipRect?.height ?? 64;
+      const centerX = rect.left + rect.width / 2;
+      const minCenterX = tooltipWidth / 2 + viewportPadding;
+      const maxCenterX = window.innerWidth - minCenterX;
+      const placeAbove =
+        rect.bottom + 10 + tooltipHeight > window.innerHeight &&
+        rect.top > tooltipHeight + 10;
+
+      setPosition({
+        left: Math.max(minCenterX, Math.min(centerX, maxCenterX)),
+        top: placeAbove ? rect.top - tooltipHeight - 10 : rect.bottom + 10,
+        placement: placeAbove ? "top" : "bottom",
+      });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isVisible]);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
+
+  return (
+    <>
+      <span ref={wrapperRef} className="inline-flex shrink-0">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={triggerLabel}
+          aria-expanded={isVisible}
+          aria-describedby={isVisible ? tooltipId : undefined}
+          onClick={() => setIsOpen((open) => !open)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
+          className="inline-flex cursor-help rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <BadgeCheck
+            size={size}
+            className={className}
+            fill="none"
+            aria-hidden="true"
+          />
+        </button>
+      </span>
+
+      {isVisible &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <span
+            ref={tooltipRef}
+            id={tooltipId}
+            role="tooltip"
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={handlePointerLeave}
+            style={{
+              position: "fixed",
+              left: position.left,
+              top: position.top,
+              transform: "translateX(-50%)",
+            }}
+            className={cn(
+              "z-[100] w-max max-w-[min(18rem,calc(100vw-1rem))]",
+              "rounded-xl border border-border/80 bg-popover px-3 py-2",
+              "text-center text-xs font-medium leading-relaxed text-popover-foreground",
+              "break-words shadow-lg shadow-black/10 ring-1 ring-foreground/5",
+              "dark:shadow-black/25",
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute left-1/2 size-3 -translate-x-1/2 rotate-45",
+                "border-border/80 bg-popover",
+                position.placement === "bottom"
+                  ? "-top-1.5 border-l border-t"
+                  : "-bottom-1.5 border-b border-r",
+              )}
+            />
+            <span className="relative">{description}</span>
+          </span>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export default function ProfileHeader({
   user,
   counts,
@@ -64,6 +290,7 @@ export default function ProfileHeader({
   canSendDirectMessage,
 }: Props) {
   const t = useTranslations("profile");
+  const tBadges = useTranslations("badges");
   const router = useRouter();
 
   const [isPendingBlock, startBlockTransition] = useTransition();
@@ -77,7 +304,9 @@ export default function ProfileHeader({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const blockExists = isBlocked || isBlockedByThem;
-  const hasVerifiedBadge = Boolean(user.badge);
+  const activeBadge = user.badge ? badgeConfig[user.badge] : null;
+  const badgeDescription = activeBadge ? tBadges(activeBadge.key) : null;
+  const badgeTriggerLabel = tBadges("trigger");
 
   useEffect(() => {
     setIsBlocked(hasBlockedThem);
@@ -147,7 +376,6 @@ export default function ProfileHeader({
   }
 
   function handleToggleMute() {
-    // بلاک از میوت اولویت بالاتری دارد؛ حین عملیات بلاک نیز میوت نکن.
     if (blockExists || isPendingBlock || isPendingMute) return;
 
     const nextMuted = !isMuted;
@@ -209,14 +437,17 @@ export default function ProfileHeader({
             <p className="truncate text-base font-bold">
               {user.fullName || user.username}
             </p>
-            {hasVerifiedBadge && (
-              <BadgeCheck
+
+            {activeBadge && badgeDescription && (
+              <VerifiedBadge
                 size={16}
-                className="shrink-0 text-blue-500"
-                aria-label="Verified account"
+                className={cn("shrink-0", activeBadge.className)}
+                description={badgeDescription}
+                triggerLabel={badgeTriggerLabel}
               />
             )}
           </div>
+
           <p className="truncate text-xs text-muted-foreground">
             @{user.username}
           </p>
@@ -381,11 +612,12 @@ export default function ProfileHeader({
         <div className="flex items-center gap-1.5">
           <h1 className="text-lg font-bold leading-tight">{user.fullName}</h1>
 
-          {hasVerifiedBadge && (
-            <BadgeCheck
+          {activeBadge && badgeDescription && (
+            <VerifiedBadge
               size={18}
-              className="shrink-0 text-blue-500"
-              aria-label="Verified account"
+              className={cn("shrink-0", activeBadge.className)}
+              description={badgeDescription}
+              triggerLabel={badgeTriggerLabel}
             />
           )}
 

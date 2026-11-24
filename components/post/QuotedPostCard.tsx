@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { AlertCircle, BadgeCheck, Lock } from "lucide-react";
-import { Badge } from "@prisma/client";
+import type { Badge } from "@prisma/client";
 import { useTranslations } from "next-intl";
 
 import BlockedPostPlaceholder from "./BlockedPostPlaceholder";
@@ -15,7 +15,7 @@ interface QuotedAuthor {
   username: string;
   fullName: string;
   avatarUrl: string | null;
-  badge?: Badge;
+  badge?: Badge | null;
   isPrivate?: boolean;
   blockedBy?: Array<{ blockerId: string }>;
   blocking?: Array<{ blockedId: string }>;
@@ -35,30 +35,36 @@ interface QuotedPostCardProps {
   locale: string;
 }
 
-export function QuotedBadge({ badge }: { badge?: Badge }) {
-  if (!badge || badge === "NONE") return null;
+const badgeConfig: Record<Badge, { className: string; label: string } | null> = {
+  NONE: null,
+  BLUE: {
+    className: "text-blue-500",
+    label: "Blue verified account",
+  },
+  GOLD: {
+    className: "text-amber-400",
+    label: "Gold verified account",
+  },
+  GREY: {
+    className: "text-neutral-400",
+    label: "Grey verified account",
+  },
+  DEVELOPER: {
+    className: "text-emerald-500",
+    label: "Developer account",
+  },
+};
 
-  // هماهنگ‌سازی تیک آبی با پروفایل (size-4.5 یا 18px و رنگ text-blue-500 بدون fill)
-  if (badge === "BLUE") {
-    return (
-      <BadgeCheck
-        size={18}
-        className="inline-block shrink-0 text-blue-500"
-      />
-    );
-  }
+export function QuotedBadge({ badge }: { badge?: Badge | null }) {
+  const activeBadge = badge ? badgeConfig[badge] : null;
 
-  const colorMap: Record<Badge, string> = {
-    BLUE: "text-blue-500",
-    GOLD: "text-amber-400 fill-amber-400",
-    GREY: "text-neutral-400 fill-neutral-400",
-    DEVELOPER: "text-emerald-500 fill-emerald-500",
-    NONE: "",
-  };
+  if (!activeBadge) return null;
 
   return (
     <BadgeCheck
-      className={`inline-block size-3.5 shrink-0 ${colorMap[badge]}`}
+      size={18}
+      className={`inline-block shrink-0 ${activeBadge.className}`}
+      aria-label={activeBadge.label}
     />
   );
 }

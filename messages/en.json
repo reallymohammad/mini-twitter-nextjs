@@ -179,6 +179,13 @@
     "blockError": "Could not change block status.",
     "muteError": "Could not change mute status."
   },
+  "badges": {
+  "trigger": "Verification badge information",
+  "blue": "Verified personal account or premium subscriber",
+  "gold": "Official business or brand account",
+  "grey": "Official public or government institution account",
+  "developer": "Verified platform developer or contributor"
+},
  "Settings": {
   "back": "Back",
   "title": "Settings",
