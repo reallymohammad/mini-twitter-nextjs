@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -40,12 +41,9 @@ export default function MessageBubble({
   const router = useRouter();
 
   const [isDeleting, startDeleteTransition] = useTransition();
-  const [isReactionPending, startReactionTransition] =
-    useTransition();
+  const [isReactionPending, setIsReactionPending] = useState(false);
 
   const [showOptions, setShowOptions] = useState(false);
-  const [showReactionPicker, setShowReactionPicker] =
-    useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [deleteScope, setDeleteScope] =
     useState<DeleteScope | null>(null);
@@ -54,11 +52,12 @@ export default function MessageBubble({
   const [isHidden, setIsHidden] = useState(false);
 
   const optionsRef = useRef<HTMLDivElement | null>(null);
-  const pickerRef = useRef<HTMLDivElement | null>(null);
-  const copyTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
 
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  // Cleanup copy timeout.
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) {
@@ -67,24 +66,22 @@ export default function MessageBubble({
     };
   }, []);
 
+  // Close message options when clicking outside or pressing Escape.
   useEffect(() => {
-    if (!showOptions && !showReactionPicker) return;
+    if (!showOptions) return;
 
     function handlePointerDown(event: PointerEvent) {
       if (
         event.target instanceof Node &&
-        !optionsRef.current?.contains(event.target) &&
-        !pickerRef.current?.contains(event.target)
+        !optionsRef.current?.contains(event.target)
       ) {
         setShowOptions(false);
-        setShowReactionPicker(false);
       }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setShowOptions(false);
-        setShowReactionPicker(false);
       }
     }
 
@@ -92,19 +89,18 @@ export default function MessageBubble({
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener(
-        "pointerdown",
-        handlePointerDown
-      );
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showOptions, showReactionPicker]);
+  }, [showOptions]);
 
   const createdAt = new Date(message.createdAt);
+
   const formattedTime = Number.isNaN(createdAt.getTime())
     ? ""
     : format(createdAt, "HH:mm");
 
+  // Copy message content.
   async function handleCopy() {
     if (!message.content) return;
 
@@ -113,6 +109,7 @@ export default function MessageBubble({
         await navigator.clipboard.writeText(message.content);
       } else {
         const textarea = document.createElement("textarea");
+
         textarea.value = message.content;
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
@@ -139,6 +136,7 @@ export default function MessageBubble({
     }
   }
 
+  // Reply to message.
   function handleTriggerReply() {
     setShowOptions(false);
 
@@ -155,20 +153,27 @@ export default function MessageBubble({
     });
   }
 
-  function handleEmojiClick(emoji: string) {
-    if (isReactionPending || !onToggleReaction) return;
+  // Hairline UI reaction handler.
+  // Errors are re-thrown so Hairline can roll back its optimistic update.
+  async function handleEmojiClick(emoji: string): Promise<void> {
+    if (isReactionPending || !onToggleReaction) {
+      throw new Error("Reaction is unavailable.");
+    }
 
-    startReactionTransition(async () => {
-      try {
-        await onToggleReaction(message.id, emoji);
-        setShowReactionPicker(false);
-        setShowOptions(false);
-      } catch (error) {
-        console.error("Failed to toggle reaction:", error);
-      }
-    });
+    setIsReactionPending(true);
+
+    try {
+      await onToggleReaction(message.id, emoji);
+      setShowOptions(false);
+    } catch (error) {
+      console.error("Failed to toggle reaction:", error);
+      throw error;
+    } finally {
+      setIsReactionPending(false);
+    }
   }
 
+  // Open delete confirmation.
   function openDeleteConfirmation(scope: DeleteScope) {
     if (isDeleting || (scope === "everyone" && !isMine)) {
       return;
@@ -185,6 +190,7 @@ export default function MessageBubble({
     }
   }
 
+  // Delete message.
   function confirmDelete() {
     if (!deleteScope || isDeleting) return;
 
@@ -200,6 +206,7 @@ export default function MessageBubble({
 
         setDeleteScope(null);
         setIsHidden(true);
+
         onDeleted?.(message.id);
         router.refresh();
       } catch (error) {
@@ -240,10 +247,7 @@ export default function MessageBubble({
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;
 
-              if (
-                event.key === "Enter" ||
-                event.key === " "
-              ) {
+              if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 onToggleSelected(message.id);
               }
@@ -259,9 +263,7 @@ export default function MessageBubble({
                   : "border-muted-foreground/60 bg-background"
               )}
             >
-              {isSelected && (
-                <Check className="h-3.5 w-3.5" />
-              )}
+              {isSelected && <Check className="h-3.5 w-3.5" />}
             </span>
 
             {content}
@@ -279,8 +281,8 @@ export default function MessageBubble({
                 setShowOptions((previous) => !previous)
               }
               onShowReactionPicker={() => {
+                // The reaction picker is now provided by Hairline UI.
                 setShowOptions(false);
-                setShowReactionPicker(true);
               }}
               onReply={handleTriggerReply}
               onCopy={handleCopy}
@@ -298,9 +300,7 @@ export default function MessageBubble({
                 reactions={message.reactions}
                 currentUserId={currentUserId}
                 isMine={isMine}
-                showReactionPicker={showReactionPicker}
                 isReactionPending={isReactionPending}
-                pickerRef={pickerRef}
                 onEmojiClick={handleEmojiClick}
               />
             </div>

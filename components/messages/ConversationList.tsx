@@ -44,12 +44,37 @@ interface ConversationListProps {
   onReportUser?: (userId: string) => void;
 }
 
+type BadgeKey = "blue" | "gold" | "grey" | "developer";
+
+const badgeConfig: Record<
+  string,
+  { className: string; key: BadgeKey }
+> = {
+  BLUE: {
+    className: "text-blue-500",
+    key: "blue",
+  },
+  GOLD: {
+    className: "text-amber-400",
+    key: "gold",
+  },
+  GREY: {
+    className: "text-neutral-400",
+    key: "grey",
+  },
+  DEVELOPER: {
+    className: "text-emerald-500",
+    key: "developer",
+  },
+};
+
 export default function ConversationList({
   conversations = [],
   locale,
   onReportUser,
 }: ConversationListProps) {
   const t = useTranslations("conversationList");
+  const tBadges = useTranslations("badges");
   const intlLocale = useLocale();
   const currentLocale = locale ?? intlLocale;
   const router = useRouter();
@@ -165,6 +190,14 @@ export default function ConversationList({
             .charAt(0)
             .toUpperCase();
 
+          const badge = user?.badge
+            ? badgeConfig[user.badge]
+            : undefined;
+
+          const badgeDescription = badge
+            ? tBadges(badge.key)
+            : null;
+
           // سرور و اولین رندر مرورگر خروجی یکسان دارند.
           const messageTime =
             isClient && item.lastMessage?.createdAt
@@ -190,6 +223,10 @@ export default function ConversationList({
 
           const href = `/${currentLocale}/messages/${item.id}`;
 
+          const conversationLabel = t("openConversationWith", {
+            name: displayName,
+          });
+
           return (
             <div
               key={item.id}
@@ -203,9 +240,11 @@ export default function ConversationList({
               <Link
                 href={href}
                 className="absolute inset-0 z-0 focus-visible:outline-2 focus-visible:outline-primary"
-                aria-label={t("openConversationWith", {
-                  name: displayName,
-                })}
+                aria-label={
+                  badgeDescription
+                    ? `${conversationLabel} — ${badgeDescription}`
+                    : conversationLabel
+                }
               />
 
               <div className="pointer-events-none relative z-10 shrink-0">
@@ -247,8 +286,15 @@ export default function ConversationList({
                       {displayName}
                     </span>
 
-                    {user?.badge && user.badge !== "NONE" && (
-                      <BadgeCheck className="h-4 w-4 shrink-0 fill-sky-500/20 text-sky-500" />
+                    {badge && (
+                      <BadgeCheck
+                        className={cn(
+                          "h-4 w-4 shrink-0",
+                          badge.className,
+                        )}
+                        fill="none"
+                        aria-hidden="true"
+                      />
                     )}
 
                     {username && (

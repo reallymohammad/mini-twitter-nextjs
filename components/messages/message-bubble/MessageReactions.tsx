@@ -1,104 +1,126 @@
+
 "use client";
 
-import type { RefObject } from "react";
-import { SmilePlus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
+import { Reactions, type Reaction as HairlineReaction } from "@/components/reactions";
 import type { DirectMessage } from "./types";
 
-const ALLOWED_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const ALLOWED_REACTIONS = [
+  { emoji: "👍", label: "Like" },
+  { emoji: "❤️", label: "Love" },
+  { emoji: "😂", label: "Funny" },
+  { emoji: "😮", label: "Surprised" },
+  { emoji: "😢", label: "Sad" },
+  { emoji: "🙏", label: "Thanks" },
+];
 
 interface MessageReactionsProps {
   reactions: DirectMessage["reactions"];
   currentUserId: string;
   isMine: boolean;
-  showReactionPicker: boolean;
   isReactionPending: boolean;
-  pickerRef: RefObject<HTMLDivElement | null>;
-  onEmojiClick: (emoji: string) => void;
+  onEmojiClick: (emoji: string) => Promise<void>;
+}
+
+function mapReactions(
+  reactions: DirectMessage["reactions"],
+  currentUserId: string
+): HairlineReaction[] {
+  const grouped = new Map<string, HairlineReaction>();
+
+  for (const reaction of reactions ?? []) {
+    if (!ALLOWED_REACTIONS.some((item) => item.emoji === reaction.emoji)) {
+      continue;
+    }
+
+    const existing = grouped.get(reaction.emoji);
+
+    if (existing) {
+      existing.count += 1;
+
+      if (reaction.userId === currentUserId) {
+        existing.mine = true;
+      }
+    } else {
+      grouped.set(reaction.emoji, {
+        emoji: reaction.emoji,
+        count: 1,
+        mine: reaction.userId === currentUserId,
+      });
+    }
+  }
+
+  return Array.from(grouped.values());
 }
 
 export default function MessageReactions({
   reactions,
   currentUserId,
   isMine,
-  showReactionPicker,
   isReactionPending,
-  pickerRef,
   onEmojiClick,
 }: MessageReactionsProps) {
-  // گروه‌بندی بر اساس ایموجی بدون شمارش عددی
-  const groupedReactions = (reactions ?? []).reduce(
-    (acc, reaction) => {
-      if (!acc[reaction.emoji]) {
-        acc[reaction.emoji] = { hasReacted: false };
-      }
-
-      if (reaction.userId === currentUserId) {
-        acc[reaction.emoji].hasReacted = true;
-      }
-
-      return acc;
-    },
-    {} as Record<string, { hasReacted: boolean }>
+  const [localReactions, setLocalReactions] = useState<HairlineReaction[]>(
+    () => mapReactions(reactions, currentUserId)
   );
 
-  const reactionEntries = Object.entries(groupedReactions);
+  // Sync with server/realtime updates.
+  useEffect(() => {
+    setLocalReactions(mapReactions(reactions, currentUserId));
+  }, [reactions, currentUserId]);
+
+  // Hairline supports multiple reactions by default.
+  // Our database allows only one reaction per user per message.
+  function handleValueChange(next: HairlineReaction[]) {
+    setLocalReactions((previous) => {
+      const newlySelected = next.find(
+        (reaction) =>
+          reaction.mine &&
+          !previous.some(
+            (old) => old.emoji === reaction.emoji && old.mine
+          )
+      );
+
+      if (!newlySelected) {
+        return next.filter((reaction) => reaction.count > 0);
+      }
+
+      return next
+        .map((reaction) => {
+          if (reaction.mine && reaction.emoji !== newlySelected.emoji) {
+            return {
+              ...reaction,
+              count: Math.max(0, reaction.count - 1),
+              mine: false,
+            };
+          }
+
+          return reaction;
+        })
+        .filter((reaction) => reaction.count > 0);
+    });
+  }
+
+  async function handleReact(emoji: string) {
+    await onEmojiClick(emoji);
+  }
 
   return (
-    <>
-      {/* پنل انتخاب سریع ایموجی با انیمیشن روان و سایه حرفه‌ای */}
-      {showReactionPicker && (
-        <div
-          ref={pickerRef}
-          className={cn(
-            "absolute bottom-full mb-2 z-30 flex items-center gap-1.5 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150",
-            isMine ? "end-0" : "start-0"
-          )}
-        >
-          {ALLOWED_REACTIONS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              aria-label={emoji}
-              disabled={isReactionPending}
-              onClick={() => onEmojiClick(emoji)}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-base transition-transform hover:scale-125 hover:bg-muted focus:outline-none disabled:opacity-50"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* لیست ری‌اکشن‌های ثبت‌شده بدون هیچ‌گونه عدد یا شمارنده */}
-      {reactionEntries.length > 0 && (
-        <div
-          className={cn(
-            "mt-1 flex flex-wrap gap-1.5",
-            isMine ? "justify-end" : "justify-start"
-          )}
-        >
-          {reactionEntries.map(([emoji, { hasReacted }]) => (
-            <button
-              key={emoji}
-              type="button"
-              role="button"
-              aria-label={emoji}
-              aria-pressed={hasReacted}
-              disabled={isReactionPending}
-              onClick={() => onEmojiClick(emoji)}
-              className={cn(
-                "group inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs shadow-xs transition-all active:scale-95 disabled:opacity-50",
-                hasReacted
-                  ? "border-primary/50 bg-primary/10 text-primary font-semibold ring-1 ring-primary/20"
-                  : "border-border/80 bg-background/90 text-foreground/80 hover:bg-muted hover:border-border"
-              )}
-            >
-              <span className="text-sm leading-none">{emoji}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </>
+    <div
+      className={[
+        "mt-1 flex w-full",
+        isMine ? "justify-end" : "justify-start",
+        isReactionPending ? "pointer-events-none opacity-60" : "",
+      ].join(" ")}
+    >
+      <Reactions
+        value={localReactions}
+        onValueChange={handleValueChange}
+        onReact={handleReact}
+        choices={ALLOWED_REACTIONS}
+        label="React to message"
+        className="max-w-full"
+      />
+    </div>
   );
 }

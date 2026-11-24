@@ -46,6 +46,26 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  @keyframes ui-col-in {
+  from {
+    max-width: 0;
+    opacity: 0;
+    }
+  to {
+    max-width: 1em;
+    opacity: 1;
+    }
+  }
+  @keyframes ui-col-out {
+  from {
+    max-width: 1em;
+    opacity: 1;
+    }
+  to {
+    max-width: 0;
+    opacity: 0;
+    }
+  }
 }
 
 /* تغییر پیش‌فرض به حالت تیره استاندارد برای کل اپلیکیشن */
