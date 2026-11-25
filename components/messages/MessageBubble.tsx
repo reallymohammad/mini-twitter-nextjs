@@ -1,7 +1,12 @@
-
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import type { MouseEvent, PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { format } from "date-fns";
@@ -17,12 +22,16 @@ import MessageContent from "./message-bubble/MessageContent";
 import MessageActions from "./message-bubble/MessageActions";
 import MessageReactions from "./message-bubble/MessageReactions";
 import DeleteMessageDialog from "./message-bubble/DeleteMessageDialog";
+
 import type {
   DeleteScope,
   MessageBubbleProps,
 } from "./message-bubble/types";
 
 export type { MessageBubbleProps } from "./message-bubble/types";
+
+const LONG_PRESS_DURATION = 500;
+const LONG_PRESS_MOVE_THRESHOLD = 10;
 
 export default function MessageBubble({
   message,
@@ -42,8 +51,8 @@ export default function MessageBubble({
 
   const [isDeleting, startDeleteTransition] = useTransition();
   const [isReactionPending, setIsReactionPending] = useState(false);
-
   const [showOptions, setShowOptions] = useState(false);
+  const [openReactionPicker, setOpenReactionPicker] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [deleteScope, setDeleteScope] =
     useState<DeleteScope | null>(null);
@@ -51,46 +60,175 @@ export default function MessageBubble({
     useState<string | null>(null);
   const [isHidden, setIsHidden] = useState(false);
 
+  const messageRef = useRef<HTMLDivElement | null>(null);
   const optionsRef = useRef<HTMLDivElement | null>(null);
 
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const copyTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cleanup copy timeout.
+  const longPressTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pointerStartRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const longPressTriggeredRef = useRef(false);
+
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current);
       }
+
+      if (longPressTimeoutRef.current) {
+        clearTimeout(longPressTimeoutRef.current);
+      }
     };
   }, []);
 
-  // Close message options when clicking outside or pressing Escape.
+  function clearLongPress() {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+
+    pointerStartRef.current = null;
+  }
+
+  function closeContextMenu() {
+    setShowOptions(false);
+    setOpenReactionPicker(false);
+  }
+
+  function openContextMenu() {
+    if (selectionMode || isDeleting || isHidden) return;
+
+    setShowOptions(true);
+    setOpenReactionPicker(true);
+  }
+
+  function handleContextMenu(event: MouseEvent<HTMLDivElement>) {
+    // Prevent the browser's native context menu.
+    event.preventDefault();
+
+    if (selectionMode) return;
+
+    openContextMenu();
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (selectionMode || isDeleting || isHidden) return;
+
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") {
+      return;
+    }
+
+    const target = event.target;
+
+    // Do not trigger long press on interactive elements.
+    if (
+      target instanceof Element &&
+      target.closest(
+        "button, a, input, textarea, select, video, audio, [role='button'], [role='checkbox']"
+      )
+    ) {
+      return;
+    }
+
+    clearLongPress();
+    longPressTriggeredRef.current = false;
+
+    pointerStartRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+
+    longPressTimeoutRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      openContextMenu();
+      longPressTimeoutRef.current = null;
+    }, LONG_PRESS_DURATION);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const start = pointerStartRef.current;
+
+    if (!start || start.pointerId !== event.pointerId) return;
+
+    const distance = Math.hypot(
+      event.clientX - start.x,
+      event.clientY - start.y
+    );
+
+    if (distance > LONG_PRESS_MOVE_THRESHOLD) {
+      clearLongPress();
+    }
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (
+      pointerStartRef.current &&
+      pointerStartRef.current.pointerId === event.pointerId
+    ) {
+      clearLongPress();
+    }
+  }
+
+  function handlePointerCancel() {
+    clearLongPress();
+  }
+
   useEffect(() => {
     if (!showOptions) return;
 
-    function handlePointerDown(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        !optionsRef.current?.contains(event.target)
-      ) {
-        setShowOptions(false);
+    function handleOutsidePointerDown(event: globalThis.PointerEvent) {
+      if (!(event.target instanceof Node)) return;
+
+      const clickedMessage =
+        messageRef.current?.contains(event.target);
+
+      const clickedOptions =
+        optionsRef.current?.contains(event.target);
+
+      if (!clickedMessage && !clickedOptions) {
+        closeContextMenu();
       }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setShowOptions(false);
+        closeContextMenu();
       }
     }
 
-    document.addEventListener("pointerdown", handlePointerDown);
+    // Dismiss menu when scrolling the chat container or page
+    function handleScroll() {
+      closeContextMenu();
+    }
+
+    document.addEventListener(
+      "pointerdown",
+      handleOutsidePointerDown
+    );
     document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScroll, {
+      capture: true,
+      passive: true,
+    });
 
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener(
+        "pointerdown",
+        handleOutsidePointerDown
+      );
       document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScroll, {
+        capture: true,
+      });
     };
   }, [showOptions]);
 
@@ -100,7 +238,6 @@ export default function MessageBubble({
     ? ""
     : format(createdAt, "HH:mm");
 
-  // Copy message content.
   async function handleCopy() {
     if (!message.content) return;
 
@@ -117,12 +254,13 @@ export default function MessageBubble({
         document.body.appendChild(textarea);
         textarea.focus();
         textarea.select();
+
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
 
       setIsCopied(true);
-      setShowOptions(false);
+      closeContextMenu();
 
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current);
@@ -136,9 +274,8 @@ export default function MessageBubble({
     }
   }
 
-  // Reply to message.
   function handleTriggerReply() {
-    setShowOptions(false);
+    closeContextMenu();
 
     const senderName =
       message.sender?.fullName ||
@@ -153,8 +290,6 @@ export default function MessageBubble({
     });
   }
 
-  // Hairline UI reaction handler.
-  // Errors are re-thrown so Hairline can roll back its optimistic update.
   async function handleEmojiClick(emoji: string): Promise<void> {
     if (isReactionPending || !onToggleReaction) {
       throw new Error("Reaction is unavailable.");
@@ -164,7 +299,7 @@ export default function MessageBubble({
 
     try {
       await onToggleReaction(message.id, emoji);
-      setShowOptions(false);
+      closeContextMenu();
     } catch (error) {
       console.error("Failed to toggle reaction:", error);
       throw error;
@@ -173,14 +308,13 @@ export default function MessageBubble({
     }
   }
 
-  // Open delete confirmation.
   function openDeleteConfirmation(scope: DeleteScope) {
     if (isDeleting || (scope === "everyone" && !isMine)) {
       return;
     }
 
     setDeleteError(null);
-    setShowOptions(false);
+    closeContextMenu();
     setDeleteScope(scope);
   }
 
@@ -190,7 +324,6 @@ export default function MessageBubble({
     }
   }
 
-  // Delete message.
   function confirmDelete() {
     if (!deleteScope || isDeleting) return;
 
@@ -231,10 +364,24 @@ export default function MessageBubble({
   return (
     <>
       <div
+        ref={messageRef}
         id={`message-${message.id}`}
+        onContextMenu={handleContextMenu}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onClickCapture={(event) => {
+          if (longPressTriggeredRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            longPressTriggeredRef.current = false;
+          }
+        }}
         className={cn(
-          "group relative mb-3 flex max-w-[82%] flex-col sm:max-w-[70%]",
-          isMine ? "ml-auto items-end" : "mr-auto items-start"
+          "group relative mb-3 flex max-w-[82%] select-none flex-col sm:max-w-[70%] [-webkit-touch-callout:none]",
+          isMine ? "ml-auto items-end" : "mr-auto items-start",
+          showOptions && "z-40"
         )}
       >
         {selectionMode ? (
@@ -269,41 +416,43 @@ export default function MessageBubble({
             {content}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <MessageActions
-              optionsRef={optionsRef}
-              isMine={isMine}
-              hasContent={Boolean(message.content)}
-              isDeleting={isDeleting}
-              isCopied={isCopied}
-              showOptions={showOptions}
-              onToggleOptions={() =>
-                setShowOptions((previous) => !previous)
-              }
-              onShowReactionPicker={() => {
-                // The reaction picker is now provided by Hairline UI.
-                setShowOptions(false);
-              }}
-              onReply={handleTriggerReply}
-              onCopy={handleCopy}
-              onStartSelection={() => {
-                setShowOptions(false);
-                onStartSelection(message.id);
-              }}
-              onOpenDelete={openDeleteConfirmation}
-            />
-
-            <div className="flex flex-col gap-1">
+          <div className="relative flex max-w-full flex-col">
+            <div className="relative max-w-full">
               {content}
 
-              <MessageReactions
-                reactions={message.reactions}
-                currentUserId={currentUserId}
+              <MessageActions
+                optionsRef={optionsRef}
                 isMine={isMine}
-                isReactionPending={isReactionPending}
-                onEmojiClick={handleEmojiClick}
+                hasContent={Boolean(message.content)}
+                isDeleting={isDeleting}
+                isCopied={isCopied}
+                showOptions={showOptions}
+                onToggleOptions={() => {
+                  setShowOptions((previous) => !previous);
+                  setOpenReactionPicker(false);
+                }}
+                onShowReactionPicker={() => {
+                  setShowOptions(true);
+                  setOpenReactionPicker(true);
+                }}
+                onReply={handleTriggerReply}
+                onCopy={handleCopy}
+                onStartSelection={() => {
+                  closeContextMenu();
+                  onStartSelection(message.id);
+                }}
+                onOpenDelete={openDeleteConfirmation}
               />
             </div>
+
+            <MessageReactions
+              reactions={message.reactions}
+              currentUserId={currentUserId}
+              isMine={isMine}
+              isReactionPending={isReactionPending}
+              onEmojiClick={handleEmojiClick}
+              openPicker={openReactionPicker}
+            />
           </div>
         )}
 

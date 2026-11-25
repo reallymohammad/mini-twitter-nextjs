@@ -7,9 +7,7 @@ import {
   CheckSquare,
   Copy,
   Loader2,
-  MoreHorizontal,
   Reply,
-  SmilePlus,
   Trash2,
 } from "lucide-react";
 
@@ -23,7 +21,11 @@ interface MessageActionsProps {
   isDeleting: boolean;
   isCopied: boolean;
   showOptions: boolean;
+
+  // Kept for compatibility with MessageBubble.
+  // The menu is now opened by right-click or long-press.
   onToggleOptions: () => void;
+
   onShowReactionPicker: () => void;
   onReply: () => void;
   onCopy: () => void;
@@ -38,7 +40,6 @@ export default function MessageActions({
   isDeleting,
   isCopied,
   showOptions,
-  onToggleOptions,
   onShowReactionPicker,
   onReply,
   onCopy,
@@ -47,101 +48,92 @@ export default function MessageActions({
 }: MessageActionsProps) {
   const t = useTranslations("Settings.Messages");
 
+  if (!showOptions) return null;
+
   return (
-    <div ref={optionsRef} className="relative">
-      <button
-        type="button"
-        disabled={isDeleting}
-        onClick={onToggleOptions}
+    <div
+      ref={optionsRef}
+      className={cn(
+        "absolute top-full z-40 mt-1.5",
+        isMine ? "end-0" : "start-0"
+      )}
+    >
+      <div
+        role="menu"
         aria-label={t("messageOptions")}
-        aria-haspopup="menu"
-        aria-expanded={showOptions}
-        className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground focus:opacity-100 disabled:opacity-50 sm:opacity-0 sm:group-hover:opacity-100"
-      >
-        {isDeleting ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : isCopied ? (
-          <Check className="h-4 w-4 text-emerald-500" />
-        ) : (
-          <MoreHorizontal className="h-4 w-4" />
+        className={cn(
+          "min-w-44 overflow-hidden rounded-xl border border-border bg-background p-1 shadow-xl",
+          "animate-in fade-in-0 zoom-in-95 duration-150"
         )}
-      </button>
-
-      {showOptions && (
-        <div
-          role="menu"
-          className={cn(
-            "absolute top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-background p-1 shadow-lg",
-            isMine ? "end-0" : "start-0"
-          )}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          onClick={onReply}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
         >
+          <Reply className="h-4 w-4 -scale-x-100" />
+          {t("reply")}
+        </button>
+
+        {hasContent && (
           <button
             type="button"
             role="menuitem"
-            onClick={onShowReactionPicker}
+            onClick={onCopy}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
           >
-            <SmilePlus className="h-4 w-4" />
-            {t("react")}
-          </button>
-
-          <button
-            type="button"
-            role="menuitem"
-            onClick={onReply}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
-          >
-            <Reply className="h-4 w-4 -scale-x-100" />
-            {t("reply")}
-          </button>
-
-          {hasContent && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onCopy}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
-            >
+            {isCopied ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
               <Copy className="h-4 w-4" />
-              {t("copyText")}
-            </button>
+            )}
+
+            {t("copyText")}
+          </button>
+        )}
+
+        <button
+          type="button"
+          role="menuitem"
+          onClick={onStartSelection}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
+        >
+          <CheckSquare className="h-4 w-4" />
+          {t("selectMessage")}
+        </button>
+
+        <div className="my-1 border-t border-border" />
+
+        <button
+          type="button"
+          role="menuitem"
+          disabled={isDeleting}
+          onClick={() => onOpenDelete("me")}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted disabled:opacity-50"
+        >
+          {isDeleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
           )}
 
-          <button
-            type="button"
-            role="menuitem"
-            onClick={onStartSelection}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted"
-          >
-            <CheckSquare className="h-4 w-4" />
-            {t("selectMessage")}
-          </button>
+          {t("deleteForMe")}
+        </button>
 
+        {isMine && (
           <button
             type="button"
             role="menuitem"
             disabled={isDeleting}
-            onClick={() => onOpenDelete("me")}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition hover:bg-muted disabled:opacity-50"
+            onClick={() => onOpenDelete("everyone")}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
           >
             <Trash2 className="h-4 w-4" />
-            {t("deleteForMe")}
+            {t("deleteForEveryone")}
           </button>
-
-          {isMine && (
-            <button
-              type="button"
-              role="menuitem"
-              disabled={isDeleting}
-              onClick={() => onOpenDelete("everyone")}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              {t("deleteForEveryone")}
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

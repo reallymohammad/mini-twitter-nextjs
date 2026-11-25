@@ -1,44 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { NumberRoll } from "./number-roll";
 import { GLYPH, ReactionTray, TRAY_H, trayWidth, type ReactionChoice, type TrayHandle, type TrayPlacement } from "./reactions-tray";
 import { EASE_OUT, EASE_THROW, INTERACTION_FOCUS, INTERACTION_PRESS, createSpring, useInteractionReducedMotion, type Spring } from "./ui-interaction-motion";
 
 export type { ReactionChoice } from "./reactions-tray";
 
-/* ─────────────────────────────────────────────────────────
- * REACTIONS: the row under a comment or a message
- *
- *   pick     press the add button and drag along the tray without
- *            letting go: the emoji under the finger swells and its
- *            name glides above it; release to react. A tap opens
- *            the tray to click instead
- *   flight   the emoji you picked flies from the tray into its
- *            chip on springs, shrinking as it goes, and lands: the
- *            chip takes the weight, the count rolls up and a few
- *            copies spring out of it
- *   others   someone else's reaction bumps the chip and rolls the
- *            count; a new one opens its chip in place
- *   remove   pressing your own chip rolls the count down; at zero
- *            the emoji shrinks first and the gap closes after it
- *   fail     if onReact throws, the change is undone and the chip
- *            shakes
- *
- * Reduced motion: no swell, flight or burst; chips and counts change in place.
- * ───────────────────────────────────────────────────────── */
-
 export interface Reaction {
   emoji: string;
-  /** Everyone who reacted with it, you included. */
   count: number;
-  /** You reacted with it. */
   mine?: boolean;
-  /** Other people's names, for the tooltip; a count beyond them reads "and N others". */
   people?: string[];
 }
 
 export interface ReactionsHandle {
+  /** Opens the reaction tray without selecting or toggling an emoji. */
+  open: () => void;
+
   /** Plays the whole gesture for this emoji: the tray opens, the swell moves to it and it flies in (toggles it if yours). */
   pick: (emoji: string) => void;
 }
@@ -47,13 +25,11 @@ export interface ReactionsProps {
   value?: Reaction[];
   defaultValue?: Reaction[];
   onValueChange?: (value: Reaction[]) => void;
-  /** Save it. Called after the row has already changed; throw to undo the change. */
   onReact?: (emoji: string, on: boolean) => Promise<unknown> | unknown;
-  /** The emoji in the tray, in order. */
   choices?: ReactionChoice[];
-  /** The add button's name. */
   label?: string;
   className?: string;
+  hideTrigger?: boolean;
   ref?: React.Ref<ReactionsHandle>;
 }
 
@@ -69,12 +45,9 @@ export const DEFAULT_REACTION_CHOICES: ReactionChoice[] = [
 
 const CHIP_GLYPH = 16;
 const NONE: Reaction[] = [];
-const ROLL_FORMAT: Intl.NumberFormatOptions = { maximumFractionDigits: 0 };
-// The flight: across a little faster than down, so the path bends instead of running straight. No overshoot, it's seen often.
 const FLY_X = { stiffness: 360, damping: 36 };
 const FLY_Y = { stiffness: 280, damping: 33 };
 const FLY_S = { stiffness: 320, damping: 34 };
-// A chip that takes a weight dips and comes back once.
 const GIVE = { stiffness: 640, damping: 30 };
 
 function toggle(list: Reaction[], emoji: string, on: boolean): Reaction[] {
@@ -141,7 +114,6 @@ const Chip = React.memo(function Chip({ reaction, label, leaving, animateIn, awa
     const paint = () => {
       const v = give.current?.get() ?? 1;
       if (button.current) button.current.style.transform = v === 1 ? "" : `scale(${v.toFixed(4)})`;
-      // The chip sinks under the weight while the emoji on it pops: one spring, two readings.
       if (glyph.current) glyph.current.style.transform = v === 1 ? "" : `scale(${(1 + (1 - v) * 2.6).toFixed(4)})`;
     };
     const spring = createSpring(1, GIVE, paint, 0.0005);
@@ -162,7 +134,6 @@ const Chip = React.memo(function Chip({ reaction, label, leaving, animateIn, awa
     };
   }, [emoji, reduced, register]);
 
-  // Someone else's reaction bumps it gently; yours lands with a heavier one when its flight arrives.
   React.useEffect(() => {
     const before = lastCount.current;
     lastCount.current = count;
@@ -188,9 +159,9 @@ const Chip = React.memo(function Chip({ reaction, label, leaving, animateIn, awa
             aria-describedby={tipId}
             tabIndex={leaving ? -1 : undefined}
             onClick={() => onToggle(emoji)}
-            className={`inline-flex h-8 cursor-pointer select-none items-center gap-1.5 rounded-full pl-2 pr-2.5 text-[13px] font-medium tabular-nums will-change-transform ${INTERACTION_PRESS} ${INTERACTION_FOCUS} ${
+            className={`inline-flex h-8 cursor-pointer select-none items-center justify-center rounded-full px-2.5 text-[15px] font-medium will-change-transform ${INTERACTION_PRESS} ${INTERACTION_FOCUS} ${
               mine
-                ? "bg-[color-mix(in_oklab,var(--foreground)_11%,var(--background))] text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_15%,var(--background))]"
+                ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1.5px_var(--primary)] hover:bg-primary/15"
                 : "bg-background text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent hover:text-foreground"
             }`}
           >
@@ -207,7 +178,6 @@ const Chip = React.memo(function Chip({ reaction, label, leaving, animateIn, awa
             >
               {emoji}
             </span>
-            <NumberRoll value={count} format={ROLL_FORMAT} duration={620} aria-hidden="true" />
           </button>
         </span>
       </span>
@@ -230,7 +200,6 @@ function SmilePlus({ open, reduced }: { open: boolean; reduced: boolean }) {
   const spring = React.useRef<Spring | null>(null);
 
   React.useLayoutEffect(() => {
-    // A rig, not a swap: the mouth widens into a grin and the plus turns into a close mark, from one value.
     const paint = () => {
       const g = spring.current?.get() ?? 0;
       mouth.current?.setAttribute("d", `M${(7.7 - 0.5 * g).toFixed(2)} 14.6Q11 ${(17.6 + 1.8 * g).toFixed(2)} ${(14.3 + 0.5 * g).toFixed(2)} 14.6`);
@@ -271,6 +240,7 @@ export function Reactions({
   choices = DEFAULT_REACTION_CHOICES,
   label = "Add reaction",
   className = "",
+  hideTrigger = false,
   ref,
 }: ReactionsProps) {
   const reduced = useInteractionReducedMotion();
@@ -278,7 +248,6 @@ export function Reactions({
   const raw = value ?? internal;
   const list = React.useMemo(() => raw.filter((r) => r.count > 0), [raw]);
 
-  // Chips that just left stay a moment, so they can shrink away where they stood.
   const [prevList, setPrevList] = React.useState(list);
   const [ghosts, setGhosts] = React.useState<{ reaction: Reaction; index: number }[]>([]);
   if (prevList !== list) {
@@ -319,7 +288,6 @@ export function Reactions({
   const flights = React.useRef(0);
   const trayId = React.useId();
 
-  // The latest state, for handlers and timers that outlive a render.
   const latest = React.useRef({ list, phase, choices, reduced, onReact, onValueChange, controlled: value !== undefined });
   React.useLayoutEffect(() => {
     latest.current = { list, phase, choices, reduced, onReact, onValueChange, controlled: value !== undefined };
@@ -356,7 +324,6 @@ export function Reactions({
       const vy = Math.sin(angle) * speed;
       const spin = (Math.random() - 0.5) * 120;
       const life = 0.6 + Math.random() * 0.12;
-      // A thrown thing under gravity, sampled into keyframes so the compositor runs it.
       const frames = Array.from({ length: 13 }, (_, f) => {
         const p = f / 12;
         const t = p * life;
@@ -404,7 +371,6 @@ export function Reactions({
       } catch {
         commit(toggle(latest.current.list, emoji, !on));
         setSaid(on ? `Couldn't add ${name}` : `Couldn't remove ${name}`);
-        // The chip is gone if the undo emptied it; then the add button shakes for it.
         const chip = chips.current.get(emoji);
         if (chip && latest.current.list.some((r) => r.emoji === emoji)) chip.shake();
         else if (!latest.current.reduced) trigger.current?.animate([{ translate: "0" }, { translate: "-4px" }, { translate: "4px" }, { translate: "-3px" }, { translate: "0" }], { duration: 380, easing: "ease-out" });
@@ -416,15 +382,17 @@ export function Reactions({
   const openTray = React.useCallback((keyboard: boolean) => {
     const r = root.current;
     const t = trigger.current;
-    if (!r || !t) return;
+    if (!r || !t || latest.current.phase === "open") return;
+
     const count = latest.current.choices.length;
     const width = trayWidth(count);
     const box = r.getBoundingClientRect();
     const cx = t.offsetLeft + t.offsetWidth / 2;
-    // Stay inside the screen and inside whatever clips the row (a scrolling thread, a card with overflow hidden).
+
     let minX = 0;
     let maxX = document.documentElement.clientWidth;
     let minY = 0;
+
     for (let el = r.parentElement; el && el !== document.body; el = el.parentElement) {
       const style = getComputedStyle(el);
       if (style.overflowX === "visible" && style.overflowY === "visible") continue;
@@ -433,18 +401,27 @@ export function Reactions({
       maxX = Math.min(maxX, clip.right);
       minY = Math.max(minY, clip.top);
     }
+
     let left = cx - width / 2;
     left = Math.min(left, maxX - 8 - box.left - width);
     left = Math.max(left, minX + 8 - box.left);
+
     const above = box.top + t.offsetTop - TRAY_H - 10 > minY + 8;
     const top = above ? t.offsetTop - TRAY_H - 6 : t.offsetTop + t.offsetHeight + 6;
-    setPlace({ left, top, side: above ? "top" : "bottom", originX: cx - left, originY: above ? TRAY_H + 6 + t.offsetHeight / 2 : -6 - t.offsetHeight / 2 });
+
+    setPlace({
+      left,
+      top,
+      side: above ? "top" : "bottom",
+      originX: cx - left,
+      originY: above ? TRAY_H + 6 + t.offsetHeight / 2 : -6 - t.offsetHeight / 2,
+    });
     setFocusTray(keyboard);
     setPhase("open");
   }, []);
 
   const closeTray = React.useCallback((returnFocus: boolean) => {
-    if (latest.current.phase === "closed") return;
+    if (latest.current.phase === "closed" || latest.current.phase === "closing") return;
     setPhase("closing");
     if (returnFocus) trigger.current?.focus({ preventScroll: true });
   }, []);
@@ -469,6 +446,15 @@ export function Reactions({
   React.useImperativeHandle(
     ref,
     () => ({
+      open() {
+        stopAuto();
+
+        if (latest.current.phase === "open") return;
+
+        // Open the tray only. Do not select an emoji or call onReact.
+        openTray(false);
+      },
+
       pick(emoji) {
         stopAuto();
         const index = latest.current.choices.findIndex((c) => c.emoji === emoji);
@@ -489,7 +475,6 @@ export function Reactions({
     [openTray, pickIndex, react, stopAuto],
   );
 
-  // A press outside closes the tray.
   React.useEffect(() => {
     if (phase !== "open") return;
     const away = (event: PointerEvent) => {
@@ -499,7 +484,6 @@ export function Reactions({
     return () => document.removeEventListener("pointerdown", away);
   }, [phase, closeTray]);
 
-  // The flight: springs from where the emoji is drawn in the tray to its slot in the chip, then the landing.
   React.useLayoutEffect(() => {
     if (!flight) return;
     const el = flyer.current;
@@ -572,68 +556,96 @@ export function Reactions({
         />
       ))}
 
-      <span className="inline-flex py-0.5">
+      {hideTrigger ? (
         <button
           ref={trigger}
           type="button"
-          aria-label={label}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-controls={open ? trayId : undefined}
-          className={`grid size-8 cursor-pointer touch-none select-none place-items-center rounded-full shadow-[inset_0_0_0_1px_var(--border)] transition-colors [-webkit-touch-callout:none] ${
-            open ? "bg-accent text-foreground" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
-          } ${INTERACTION_PRESS} ${INTERACTION_FOCUS}`}
-          onContextMenu={(event) => event.preventDefault()}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            stopAuto();
-            const box = root.current?.getBoundingClientRect();
-            press.current = { id: event.pointerId, x: event.clientX, y: event.clientY, dragging: false, wasOpen: latest.current.phase === "open", rootX: box?.left ?? 0, rootY: box?.top ?? 0 };
-            if (latest.current.phase !== "open") openTray(false);
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            const p = press.current;
-            if (!p || p.id !== event.pointerId) return;
-            if (!p.dragging && Math.hypot(event.clientX - p.x, event.clientY - p.y) < 7) return;
-            p.dragging = true;
-            tray.current?.setActive(tray.current.indexAt(event.clientX - p.rootX, event.clientY - p.rootY));
-          }}
-          onPointerUp={(event) => {
-            const p = press.current;
-            press.current = null;
-            if (!p || p.id !== event.pointerId) return;
-            if (p.dragging) {
-              const index = tray.current?.indexAt(event.clientX - p.rootX, event.clientY - p.rootY) ?? -1;
-              if (index >= 0) pickIndex(index, false);
-              else closeTray(false);
-            } else if (p.wasOpen) closeTray(false);
-          }}
-          onPointerCancel={() => {
-            press.current = null;
-          }}
-          onClick={(event) => {
-            // Pointers are handled above; this is Enter or Space.
-            if (event.detail !== 0) return;
-            if (latest.current.phase === "open") closeTray(true);
-            else openTray(true);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && open) {
-              event.preventDefault();
-              closeTray(true);
-            } else if ((event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowRight") && open) {
-              event.preventDefault();
-              tray.current?.focus(0);
-            } else if (event.key === "ArrowUp" && !open) {
-              event.preventDefault();
-              openTray(true);
-            }
-          }}
-        >
-          <SmilePlus open={open} reduced={reduced} />
-        </button>
-      </span>
+          aria-hidden="true"
+          tabIndex={-1}
+          disabled
+          className="pointer-events-none absolute left-0 top-0 size-px opacity-0"
+        />
+      ) : (
+        <span className="inline-flex py-0.5">
+          <button
+            ref={trigger}
+            type="button"
+            aria-label={label}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-controls={open ? trayId : undefined}
+            className={`grid size-8 cursor-pointer touch-none select-none place-items-center rounded-full shadow-[inset_0_0_0_1px_var(--border)] transition-colors [-webkit-touch-callout:none] ${
+              open ? "bg-accent text-foreground" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+            } ${INTERACTION_PRESS} ${INTERACTION_FOCUS}`}
+            onContextMenu={(event) => event.preventDefault()}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              stopAuto();
+              const box = root.current?.getBoundingClientRect();
+              press.current = {
+                id: event.pointerId,
+                x: event.clientX,
+                y: event.clientY,
+                dragging: false,
+                wasOpen: latest.current.phase === "open",
+                rootX: box?.left ?? 0,
+                rootY: box?.top ?? 0,
+              };
+              if (latest.current.phase !== "open") openTray(false);
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const p = press.current;
+              if (!p || p.id !== event.pointerId) return;
+              if (!p.dragging && Math.hypot(event.clientX - p.x, event.clientY - p.y) < 7) return;
+              p.dragging = true;
+              tray.current?.setActive(
+                tray.current.indexAt(event.clientX - p.rootX, event.clientY - p.rootY)
+              );
+            }}
+            onPointerUp={(event) => {
+              const p = press.current;
+              press.current = null;
+              if (!p || p.id !== event.pointerId) return;
+              if (p.dragging) {
+                const index =
+                  tray.current?.indexAt(event.clientX - p.rootX, event.clientY - p.rootY) ?? -1;
+                if (index >= 0) pickIndex(index, false);
+                else closeTray(false);
+              } else if (p.wasOpen) {
+                closeTray(false);
+              }
+            }}
+            onPointerCancel={() => {
+              press.current = null;
+            }}
+            onClick={(event) => {
+              if (event.detail !== 0) return;
+              if (latest.current.phase === "open") closeTray(true);
+              else openTray(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && open) {
+                event.preventDefault();
+                closeTray(true);
+              } else if (
+                (event.key === "ArrowUp" ||
+                  event.key === "ArrowDown" ||
+                  event.key === "ArrowRight") &&
+                open
+              ) {
+                event.preventDefault();
+                tray.current?.focus(0);
+              } else if (event.key === "ArrowUp" && !open) {
+                event.preventDefault();
+                openTray(true);
+              }
+            }}
+          >
+            <SmilePlus open={open} reduced={reduced} />
+          </button>
+        </span>
+      )}
 
       {phase !== "closed" && place && (
         <ReactionTray

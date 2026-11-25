@@ -1,8 +1,12 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { Reactions, type Reaction as HairlineReaction } from "@/components/reactions";
+import { useEffect, useRef, useState } from "react";
+import {
+  Reactions,
+  type Reaction as HairlineReaction,
+  type ReactionsHandle,
+} from "@/components/reactions";
 import type { DirectMessage } from "./types";
 
 const ALLOWED_REACTIONS = [
@@ -19,6 +23,7 @@ interface MessageReactionsProps {
   currentUserId: string;
   isMine: boolean;
   isReactionPending: boolean;
+  openPicker?: boolean;
   onEmojiClick: (emoji: string) => Promise<void>;
 }
 
@@ -58,19 +63,25 @@ export default function MessageReactions({
   currentUserId,
   isMine,
   isReactionPending,
+  openPicker = false,
   onEmojiClick,
 }: MessageReactionsProps) {
+  const reactionsRef = useRef<ReactionsHandle>(null);
+
   const [localReactions, setLocalReactions] = useState<HairlineReaction[]>(
     () => mapReactions(reactions, currentUserId)
   );
 
-  // Sync with server/realtime updates.
   useEffect(() => {
     setLocalReactions(mapReactions(reactions, currentUserId));
   }, [reactions, currentUserId]);
 
-  // Hairline supports multiple reactions by default.
-  // Our database allows only one reaction per user per message.
+  useEffect(() => {
+    if (openPicker) {
+      reactionsRef.current?.open();
+    }
+  }, [openPicker]);
+
   function handleValueChange(next: HairlineReaction[]) {
     setLocalReactions((previous) => {
       const newlySelected = next.find(
@@ -114,11 +125,13 @@ export default function MessageReactions({
       ].join(" ")}
     >
       <Reactions
+        ref={reactionsRef}
         value={localReactions}
         onValueChange={handleValueChange}
         onReact={handleReact}
         choices={ALLOWED_REACTIONS}
         label="React to message"
+        hideTrigger
         className="max-w-full"
       />
     </div>
