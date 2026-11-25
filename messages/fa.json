@@ -268,7 +268,7 @@
       "seen": "خوانده شد",
       "messageAttachmentAlt": "پیوست پیام {number}",
         "selectMessages": "انتخاب پیام‌ها",
-  "selectMessage": "انتخاب یا لغو انتخاب پیام",
+  "selectMessage": "انتخاب",
   "selectedMessagesCount": "{count} پیام انتخاب شده",
   "selectAllMessages": "انتخاب همه",
   "clearSelection": "لغو انتخاب همه",

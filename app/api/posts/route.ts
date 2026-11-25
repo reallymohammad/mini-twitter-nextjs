@@ -9,6 +9,7 @@ import {
   sanitizePostRelations,
 } from "@/lib/prisma/postInclude";
 import { getCurrentUser } from "@/lib/session";
+import { createNotification } from "@/lib/notifications/service";
 
 export const runtime = "nodejs";
 
@@ -52,7 +53,9 @@ async function retrySerializable<T>(
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === "P2034";
 
-      if (!retryable || attempt === 2) throw error;
+      if (!retryable || attempt === 2) {
+        throw error;
+      }
     }
   }
 
@@ -76,6 +79,7 @@ export async function GET(req: NextRequest) {
       searchParams.get("limit") || "10",
       10
     );
+
     const limit = Number.isFinite(parsedLimit)
       ? Math.min(Math.max(parsedLimit, 1), 50)
       : 10;
@@ -99,7 +103,7 @@ export async function GET(req: NextRequest) {
 
     if (posts.length > limit) {
       posts.pop();
-      nextCursor = posts[posts.length - 1].id;
+      nextCursor = posts[posts.length - 1]?.id;
     }
 
     return NextResponse.json({
@@ -130,13 +134,13 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => null);
-    const result = createPostSchema.safeParse(body);
+    const parsedBody = createPostSchema.safeParse(body);
 
-    if (!result.success) {
+    if (!parsedBody.success) {
       return NextResponse.json(
         {
           error: "Validation failed",
-          details: result.error.issues,
+          details: parsedBody.error.issues,
         },
         { status: 400 }
       );
@@ -149,7 +153,7 @@ export async function POST(req: NextRequest) {
       quoteOfId,
       quotedPostId,
       expectedUserId,
-    } = result.data;
+    } = parsedBody.data;
 
     if (expectedUserId && expectedUserId !== currentUser.id) {
       return NextResponse.json(
@@ -211,40 +215,42 @@ export async function POST(req: NextRequest) {
       ),
     ];
 
-    const post = await retrySerializable(() =>
+    const created = await retrySerializable(() =>
       prisma.$transaction(
         async (tx) => {
-          if (refIds.length > 0) {
-            const found = await tx.post.findMany({
-              where: {
-                id: { in: refIds },
-                deletedAt: null,
-                ...getVisiblePostWhere(currentUser.id),
-              },
-              select: {
-                id: true,
-                author: {
-                  select: { isPrivate: true },
-                },
-              },
-            });
+          const referencedPosts =
+            refIds.length > 0
+              ? await tx.post.findMany({
+                  where: {
+                    id: { in: refIds },
+                    deletedAt: null,
+                    ...getVisiblePostWhere(currentUser.id),
+                  },
+                  select: {
+                    id: true,
+                    authorId: true,
+                    author: {
+                      select: { isPrivate: true },
+                    },
+                  },
+                })
+              : [];
 
-            if (found.length !== refIds.length) {
+          if (referencedPosts.length !== refIds.length) {
+            throw new ReferencedPostNotFoundError();
+          }
+
+          if (targetQuoteId) {
+            const quotedPost = referencedPosts.find(
+              (item) => item.id === targetQuoteId
+            );
+
+            if (!quotedPost) {
               throw new ReferencedPostNotFoundError();
             }
 
-            if (targetQuoteId) {
-              const quotedPost = found.find(
-                (item) => item.id === targetQuoteId
-              );
-
-              if (!quotedPost) {
-                throw new ReferencedPostNotFoundError();
-              }
-
-              if (quotedPost.author.isPrivate) {
-                throw new PrivatePostQuoteError();
-              }
+            if (quotedPost.author.isPrivate) {
+              throw new PrivatePostQuoteError();
             }
           }
 
@@ -293,7 +299,23 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          return newPost;
+          const replyRecipientId = targetReplyId
+            ? referencedPosts.find(
+                (item) => item.id === targetReplyId
+              )?.authorId ?? null
+            : null;
+
+          const quoteRecipientId = targetQuoteId
+            ? referencedPosts.find(
+                (item) => item.id === targetQuoteId
+              )?.authorId ?? null
+            : null;
+
+          return {
+            post: newPost,
+            replyRecipientId,
+            quoteRecipientId,
+          };
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -303,8 +325,43 @@ export async function POST(req: NextRequest) {
       )
     );
 
+    const notificationJobs: Promise<unknown>[] = [];
+
+    if (created.replyRecipientId) {
+      notificationJobs.push(
+        createNotification({
+          type: "REPLY",
+          recipientId: created.replyRecipientId,
+          actorId: currentUser.id,
+          postId: created.post.id,
+        })
+      );
+    }
+
+    if (created.quoteRecipientId) {
+      notificationJobs.push(
+        createNotification({
+          type: "QUOTE",
+          recipientId: created.quoteRecipientId,
+          actorId: currentUser.id,
+          postId: created.post.id,
+        })
+      );
+    }
+
+    const notificationResults = await Promise.allSettled(notificationJobs);
+
+    for (const result of notificationResults) {
+      if (result.status === "rejected") {
+        console.error(
+          "[POST] Notification creation failed:",
+          result.reason
+        );
+      }
+    }
+
     return NextResponse.json(
-      sanitizePostRelations(post, currentUser.id),
+      sanitizePostRelations(created.post, currentUser.id),
       { status: 201 }
     );
   } catch (error) {

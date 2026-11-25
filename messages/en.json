@@ -261,7 +261,7 @@
       "seen": "Seen",
       "messageAttachmentAlt": "Message attachment {number}",
        "selectMessages": "Select messages",
-  "selectMessage": "Select or deselect message",
+  "selectMessage": "Select",
   "selectedMessagesCount": "{count} selected",
   "selectAllMessages": "Select all",
   "clearSelection": "Deselect all",

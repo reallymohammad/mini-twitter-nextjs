@@ -11,6 +11,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { format } from "date-fns";
 import { Check, CheckCheck } from "lucide-react";
+import MessageStatus from "./message-bubble/MessageStatus";
+
 
 import {
   deleteDirectMessage,
@@ -465,26 +467,18 @@ export default function MessageBubble({
           </p>
         )}
 
-        {formattedTime && (
-          <div className="mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
-            <time dateTime={createdAt.toISOString()}>
-              {formattedTime}
-            </time>
+    {formattedTime && (
+  <div className="mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
+    <time dateTime={createdAt.toISOString()}>{formattedTime}</time>
 
-            {isMine && (
-              <span
-                className="inline-flex items-center"
-                title={message.isSeen ? t("seen") : t("sent")}
-              >
-                {message.isSeen ? (
-                  <CheckCheck className="h-3.5 w-3.5 text-sky-500" />
-                ) : (
-                  <Check className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </span>
-            )}
-          </div>
-        )}
+    <MessageStatus
+      isMine={isMine}
+      isSeen={message.isSeen}
+    />
+  </div>
+)}
+
+
       </div>
 
       {deleteScope && (

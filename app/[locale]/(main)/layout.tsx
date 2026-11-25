@@ -5,6 +5,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getCurrentUser } from "@/lib/session";
 import { CurrentUserProvider } from "@/lib/hooks/useCurrentUser";
 import { getUnreadMessagesCount } from "@/lib/dm/queries";
+import { getUnreadNotificationsCount } from "@/lib/notifications/actions";
 
 export default async function MainLayout({
   children,
@@ -14,9 +15,12 @@ export default async function MainLayout({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const [currentUser, unreadDMs] = await Promise.all([
+
+  // واکشی موازی اطلاعات کاربر، پیام‌های خوانده‌نشده و اعلان‌های خوانده‌نشده
+  const [currentUser, unreadDMs, unreadNotifications] = await Promise.all([
     getCurrentUser(),
     getUnreadMessagesCount(),
+    getUnreadNotificationsCount(),
   ]);
 
   return (
@@ -29,10 +33,11 @@ export default async function MainLayout({
               locale={locale} 
               user={currentUser} 
               unreadDMs={unreadDMs} 
+              unreadNotifications={unreadNotifications}
             />
           </aside>
 
-          {/* Main Content - دقیقاً مثل قبلی با فضا برای منوی موبایل */}
+          {/* Main Content - با فضا برای منوی موبایل */}
           <main className="flex-1 max-w-2xl border-r pb-16 md:pb-0">
             {children}
           </main>
@@ -48,6 +53,7 @@ export default async function MainLayout({
           locale={locale} 
           user={currentUser} 
           unreadDMs={unreadDMs} 
+          unreadNotifications={unreadNotifications}
         />
       </div>
     </CurrentUserProvider>

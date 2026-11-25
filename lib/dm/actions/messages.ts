@@ -4,6 +4,8 @@
 import { prisma } from "@/lib/prisma";
 import type { MessageCursor } from "@/lib/dm/types";
 import { revalidatePath } from "next/cache";
+import { createNotification } from "@/lib/notifications/service";
+
 import {
   requireCurrentUserId,
   assertNoBlock,
@@ -146,18 +148,17 @@ export async function sendDirectMessage(input: {
   );
 
   if (result.shouldNotify) {
-    try {
-      await prisma.notification.create({
-        data: {
-          type: "MESSAGE",
-          recipientId: result.recipientId,
-          actorId: senderId,
-          messageId: result.message.id,
-        },
-      });
-    } catch (error) {
-      console.error("[DM] Notification creation failed:", error);
-    }
+   try {
+  await createNotification({
+    type: "MESSAGE",
+    recipientId: result.recipientId,
+    actorId: senderId,
+    messageId: result.message.id,
+  });
+} catch (error) {
+  console.error("[DM] Notification creation failed:", error);
+}
+
   }
 
   return { status: "sent" as const, message: result.message };

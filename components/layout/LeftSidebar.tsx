@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   Compass,
+  Bell,
   User,
   Bookmark,
   Feather,
@@ -22,18 +23,36 @@ interface LeftSidebarProps {
     avatarUrl?: string | null;
   } | null;
   unreadDMs?: number;
+  unreadNotifications?: number;
 }
 
 export default function LeftSidebar({
   locale,
   user,
   unreadDMs = 0,
+  unreadNotifications = 0,
 }: LeftSidebarProps) {
   const pathname = usePathname();
 
   const navItems = [
-    { icon: Home, label: "Home", href: `/${locale}/home`, badge: 0 },
-    { icon: Compass, label: "Explore", href: `/${locale}/explore`, badge: 0 },
+    { 
+      icon: Home, 
+      label: "Home", 
+      href: `/${locale}/home`, 
+      badge: 0 
+    },
+    { 
+      icon: Compass, 
+      label: "Explore", 
+      href: `/${locale}/explore`, 
+      badge: 0 
+    },
+    {
+      icon: Bell,
+      label: "Notifications",
+      href: user ? `/${locale}/notifications` : `/${locale}/login`,
+      badge: unreadNotifications,
+    },
     {
       icon: Mail,
       label: "Messages",
@@ -73,6 +92,8 @@ export default function LeftSidebar({
           const Icon = item.icon;
           const isActive =
             pathname === item.href ||
+            (item.label === "Notifications" &&
+              pathname.startsWith(`/${locale}/notifications`)) ||
             (item.label === "Messages" &&
               pathname.startsWith(`/${locale}/messages`));
           const hasBadge = Boolean(item.badge && item.badge > 0);

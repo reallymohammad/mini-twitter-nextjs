@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { createNotification } from "@/lib/notifications/service";
 
 const MAX_ATTEMPTS = 3;
 
@@ -10,7 +11,10 @@ export async function POST(req: NextRequest) {
   const currentUser = await getCurrentUser();
 
   if (!currentUser) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   const body = await req.json().catch(() => null);
@@ -31,8 +35,15 @@ export async function POST(req: NextRequest) {
   }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let followResult:
+      | {
+          status: string;
+          shouldNotify: boolean;
+        }
+      | null;
+
     try {
-      const status = await prisma.$transaction(
+      followResult = await prisma.$transaction(
         async (tx) => {
           const targetUser = await tx.user.findFirst({
             where: {
@@ -42,7 +53,9 @@ export async function POST(req: NextRequest) {
             select: { isPrivate: true },
           });
 
-          if (!targetUser) return null;
+          if (!targetUser) {
+            return null;
+          }
 
           const where = {
             followerId_followingId: {
@@ -56,7 +69,7 @@ export async function POST(req: NextRequest) {
             select: { status: true },
           });
 
-          // فالو پذیرفته‌شده هرگز با POST تکراری به PENDING برنگردد.
+          // فالو پذیرفته‌شده با درخواست تکراری به PENDING برنمی‌گردد.
           const nextStatus =
             existingFollow?.status === "ACCEPTED"
               ? "ACCEPTED"
@@ -71,50 +84,88 @@ export async function POST(req: NextRequest) {
               followingId: targetUserId,
               status: nextStatus,
             },
-            update: { status: nextStatus },
+            update: {
+              status: nextStatus,
+            },
             select: { status: true },
           });
 
-          return follow.status;
+          return {
+            status: follow.status,
+            // درخواست تکراری نباید نوتیفیکیشن تکراری بسازد.
+            shouldNotify: !existingFollow,
+          };
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         }
       );
-
-      if (status === null) {
-        return NextResponse.json(
-          { error: "User not found" },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json({ ok: true, status });
     } catch (error) {
       const isRetryable =
         error instanceof Prisma.PrismaClientKnownRequestError &&
         (error.code === "P2034" || error.code === "P2002");
 
-      if (!isRetryable) throw error;
+      if (isRetryable && attempt < MAX_ATTEMPTS) {
+        continue;
+      }
 
-      if (attempt === MAX_ATTEMPTS) {
+      if (isRetryable) {
         return NextResponse.json(
           { error: "Follow conflict; please retry" },
           { status: 409 }
         );
       }
+
+      console.error("Follow POST error:", error);
+
+      return NextResponse.json(
+        { error: "Internal Server Error" },
+        { status: 500 }
+      );
     }
+
+    if (followResult === null) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    if (followResult.shouldNotify) {
+      try {
+        await createNotification({
+          type: "FOLLOW",
+          recipientId: targetUserId,
+          actorId: currentUser.id,
+        });
+      } catch (notificationError) {
+        console.error(
+          "[FOLLOW] Notification creation failed:",
+          notificationError
+        );
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status: followResult.status,
+    });
   }
 
-  // مسیر عادی اجرا هرگز به اینجا نمی‌رسد.
-  throw new Error("Follow retry loop exited unexpectedly");
+  return NextResponse.json(
+    { error: "Follow conflict; please retry" },
+    { status: 409 }
+  );
 }
 
 export async function DELETE(req: NextRequest) {
   const currentUser = await getCurrentUser();
 
   if (!currentUser) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   const body = await req.json().catch(() => null);

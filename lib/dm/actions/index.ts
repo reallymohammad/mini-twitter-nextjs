@@ -2,7 +2,6 @@ export {
   startDirectConversation,
   getConversations,
   getConversationDetails,
-  markConversationAsRead,
   deleteConversation,
   getConversationBlockStatus,
 } from "./conversations";
@@ -18,3 +17,4 @@ export {
 export { toggleReadReceipts } from "./settings";
 
 export { toggleMessageReaction } from "./reactions";
+export { markConversationAsRead } from "./markAsRead";

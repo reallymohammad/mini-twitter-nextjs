@@ -584,10 +584,16 @@ export function useChatRealtime({
   const handleMarkAsRead = useCallback(
     async () => {
       try {
-        const result =
-          await markConversationAsRead(
-            conversationId
-          );
+        const result = await markConversationAsRead(
+          conversationId,
+          currentUserId
+        );
+
+        // اگر کاربر رسید را خاموش کرده باشد (result === null)، نوتیس ارسال نمی‌شود
+        if (!result || !result.lastReadAt) {
+          return;
+        }
+
         const channel = channelRef.current;
 
         if (channelReadyRef.current && channel) {
@@ -597,8 +603,7 @@ export function useChatRealtime({
             payload: {
               conversationId,
               readerId: currentUserId,
-              readAt:
-                result.lastReadAt.toISOString(),
+              readAt: new Date(result.lastReadAt).toISOString(),
             },
           });
 
@@ -618,6 +623,8 @@ export function useChatRealtime({
     },
     [conversationId, currentUserId]
   );
+
+
 
   useEffect(() => {
     void handleMarkAsRead();
