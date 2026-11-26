@@ -1,3 +1,4 @@
+// components/notifications/NotificationItemCard.tsx
 "use client";
 
 import { useState } from "react";
@@ -49,7 +50,7 @@ function getNotificationHref(
 
 function ActorAvatar({ actor }: { actor: Actor }) {
   return (
-    <span className="relative inline-flex size-9 shrink-0 overflow-hidden rounded-full bg-muted">
+    <span className="relative inline-flex size-9 shrink-0 overflow-hidden rounded-full bg-muted border-2 border-background">
       {actor.avatarUrl ? (
         <Image
           src={actor.avatarUrl}
@@ -87,10 +88,8 @@ export function NotificationItemCard({
   const router = useRouter();
   const [isMarkingRead, setIsMarkingRead] = useState(false);
 
-  const isGroup = item.kind === "follow-group";
-  const notifications = isGroup
-    ? item.notifications
-    : [item.notification];
+  const isGroup = item.kind !== "single";
+  const notifications = item.kind === "single" ? [item.notification] : item.notifications;
 
   const firstNotification = notifications[0];
   const unreadIds = notifications
@@ -101,10 +100,7 @@ export function NotificationItemCard({
   const href = getNotificationHref(firstNotification, locale);
   const presentation = getNotificationPresentation(firstNotification.type);
 
-  const handleClick = async (
-    event: React.MouseEvent<HTMLAnchorElement>
-  ) => {
-    // لینک‌های بازشده در تب جدید را دست‌کاری نکن.
+  const handleClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (
       event.button !== 0 ||
       event.metaKey ||
@@ -128,13 +124,8 @@ export function NotificationItemCard({
     setIsMarkingRead(true);
 
     try {
-      await Promise.all(
-        unreadIds.map((id) => markNotificationAsRead(id))
-      );
-
+      await Promise.all(unreadIds.map((id) => markNotificationAsRead(id)));
       onRead(unreadIds);
-
-      // بج سایدبار از شمارنده‌ی سرور دوباره محاسبه می‌شود.
       router.push(href);
       router.refresh();
     } catch (error) {
@@ -148,12 +139,40 @@ export function NotificationItemCard({
   const actors = isGroup
     ? getUniqueActors(notifications)
     : firstNotification.actor
-      ? [firstNotification.actor]
-      : [];
+    ? [firstNotification.actor]
+    : [];
 
   let message: React.ReactNode;
 
-  if (isGroup) {
+  if (item.kind === "post-interaction-group") {
+    const firstActor = actors[0];
+    const otherActorsCount = Math.max(actors.length - 1, 0);
+    const actionText =
+      item.type === "LIKE" ? "liked your post" : "reposted your post";
+
+    if (!firstActor) {
+      message = `${notifications.length} people ${actionText}`;
+    } else if (otherActorsCount === 0) {
+      message = (
+        <>
+          <strong className="font-semibold text-foreground">
+            {firstActor.fullName || firstActor.username}
+          </strong>{" "}
+          {actionText}
+        </>
+      );
+    } else {
+      message = (
+        <>
+          <strong className="font-semibold text-foreground">
+            {firstActor.fullName || firstActor.username}
+          </strong>{" "}
+          and {otherActorsCount}{" "}
+          {otherActorsCount === 1 ? "other" : "others"} {actionText}
+        </>
+      );
+    }
+  } else if (item.kind === "follow-group") {
     const firstActor = actors[0];
     const otherActorsCount = Math.max(actors.length - 1, 0);
 
@@ -183,8 +202,7 @@ export function NotificationItemCard({
     message = (
       <>
         <strong className="font-semibold text-foreground">
-          {firstNotification.actor.fullName ||
-            firstNotification.actor.username}
+          {firstNotification.actor.fullName || firstNotification.actor.username}
         </strong>{" "}
         {presentation.text}
       </>
@@ -207,27 +225,17 @@ export function NotificationItemCard({
       ].join(" ")}
     >
       <div className="flex w-8 shrink-0 justify-end pt-1">
-        {isGroup ? (
-          <span className="text-primary">
-            {presentation.icon}
-          </span>
-        ) : (
-          presentation.icon
-        )}
+        {presentation.icon}
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            {/* نمایش استک آواتارها به صورت اورلپ مشابه توییتر */}
             {isGroup ? (
-              <div className="flex shrink-0 -space-x-2">
-                {actors.slice(0, 3).map((actor) => (
-                  <span
-                    key={actor.id}
-                    className="rounded-full ring-2 ring-background"
-                  >
-                    <ActorAvatar actor={actor} />
-                  </span>
+              <div className="flex items-center -space-x-2 overflow-hidden py-0.5">
+                {actors.slice(0, 5).map((actor) => (
+                  <ActorAvatar key={actor.id} actor={actor} />
                 ))}
               </div>
             ) : firstNotification.actor ? (
@@ -248,9 +256,7 @@ export function NotificationItemCard({
         </div>
 
         {firstNotification.post && (
-          <NotificationPostPreview
-            content={firstNotification.post.content}
-          />
+          <NotificationPostPreview content={firstNotification.post.content} />
         )}
 
         {isMarkingRead && (

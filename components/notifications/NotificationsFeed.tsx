@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCheck, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import {
   getNotifications,
@@ -15,36 +15,99 @@ import { NotificationTabs } from "./NotificationTabs";
 import { NotificationsEmptyState } from "./NotificationsEmptyState";
 import type { NotificationItem } from "./types";
 
-interface NotificationsFeedProps {
+export interface NotificationsFeedProps {
   locale: string;
   currentFilter: "ALL" | "MENTIONS";
   initialNotifications: NotificationItem[];
-  initialNextCursor?: string | null;
+  initialNextCvrs0r?: string | null;
 }
 
 export function NotificationsFeed({
   locale,
   currentFilter,
   initialNotifications,
-  initialNextCursor,
+  initialNextCvrs0r,
 }: NotificationsFeedProps) {
   const router = useRouter();
 
   const [notifications, setNotifications] =
     useState<NotificationItem[]>(initialNotifications);
 
-  const [nextCursor, setNextCursor] = useState<string | null>(
-    initialNextCursor ?? null
+  const [nextCvrs0r, setNextCvrs0r] = useState<string | null>(
+    initialNextCvrs0r ?? null
   );
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [isPending, startTransition] = useTransition();
 
-  // با تغییر تب یا داده‌ی دریافتی از سرور، فید را هماهنگ کن.
+  const autoReadKeyRef = useRef<string | null>(null);
+  const autoReadInFlightRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     setNotifications(initialNotifications);
-    setNextCursor(initialNextCursor ?? null);
-  }, [initialNotifications, initialNextCursor, currentFilter]);
+    setNextCvrs0r(initialNextCvrs0r ?? null);
+  }, [initialNotifications, initialNextCvrs0r, currentFilter]);
+
+  const unreadIdsKey = useMemo(() => {
+    const ids = notifications
+      .filter((n) => !n.isRead)
+      .map((n) => n.id)
+      .sort();
+
+    return ids.length > 0 ? ids.join("|") : null;
+  }, [notifications]);
+
+  // نمایش اولیه نوتیف‌ها با هایلایت و سپس علامت‌گذاری و رفع هایلایت پس از ۱.۵ ثانیه
+  useEffect(() => {
+    if (!unreadIdsKey) return;
+    if (autoReadInFlightRef.current) return;
+    if (autoReadKeyRef.current === unreadIdsKey) return;
+
+    autoReadKeyRef.current = unreadIdsKey;
+    autoReadInFlightRef.current = true;
+
+    const idsToMark = new Set(unreadIdsKey.split("|"));
+
+    const timer = setTimeout(() => {
+      if (!isMountedRef.current) return;
+
+      const run = async () => {
+        try {
+          await markAllNotificationsAsRead();
+
+          if (!isMountedRef.current) return;
+
+          setNotifications((current) =>
+            current.map((n) =>
+              idsToMark.has(n.id) && !n.isRead ? { ...n, isRead: true } : n
+            )
+          );
+
+          router.refresh();
+        } catch (error) {
+          console.error("Failed to auto mark notifications as read:", error);
+          if (autoReadKeyRef.current === unreadIdsKey) {
+            autoReadKeyRef.current = null;
+          }
+        } finally {
+          autoReadInFlightRef.current = false;
+        }
+      };
+
+      void run();
+    }, 1500);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [unreadIdsKey, router]);
 
   const handleTabChange = (filter: "ALL" | "MENTIONS") => {
     if (filter === currentFilter) return;
@@ -53,72 +116,49 @@ export function NotificationsFeed({
     router.push(`/${locale}/notifications${query}`);
   };
 
-  const handleMarkAllAsRead = () => {
-    startTransition(async () => {
-      try {
-        await markAllNotificationsAsRead();
-
-        setNotifications((current) =>
-          current.map((notification) => ({
-            ...notification,
-            isRead: true,
-          }))
-        );
-
-        router.refresh();
-      } catch (error) {
-        console.error("Failed to mark all notifications as read:", error);
-      }
-    });
-  };
-
-  const handleRead = (ids: string[]) => {
+  const handleRead = useCallback((ids: string[]) => {
     const readIds = new Set(ids);
 
     setNotifications((current) =>
-      current.map((notification) =>
-        readIds.has(notification.id)
-          ? { ...notification, isRead: true }
-          : notification
+      current.map((n) =>
+        readIds.has(n.id) && !n.isRead ? { ...n, isRead: true } : n
       )
     );
-  };
+  }, []);
 
   const handleLoadMore = async () => {
-    if (!nextCursor || isLoadingMore) return;
+    if (!nextCvrs0r || isLoadingMore) return;
 
     setIsLoadingMore(true);
 
     try {
       const result = await getNotifications({
-        cursor: nextCursor,
+        cvrs0r: nextCvrs0r,
         limit: 20,
         filter: currentFilter,
       });
 
+      if (!isMountedRef.current) return;
+
       setNotifications((current) => {
-        const existingIds = new Set(
-          current.map((notification) => notification.id)
-        );
+        const existingIds = new Set(current.map((n) => n.id));
 
         const newNotifications = result.notifications.filter(
-          (notification) => !existingIds.has(notification.id)
+          (n) => !existingIds.has(n.id)
         );
 
         return [...current, ...newNotifications];
       });
 
-      setNextCursor(result.nextCursor ?? null);
+      setNextCvrs0r(result.nextCvrs0r ?? null);
     } catch (error) {
       console.error("Failed to load more notifications:", error);
     } finally {
-      setIsLoadingMore(false);
+      if (isMountedRef.current) {
+        setIsLoadingMore(false);
+      }
     }
   };
-
-  const unreadCount = notifications.filter(
-    (notification) => !notification.isRead
-  ).length;
 
   const displayItems = groupNotifications(notifications);
 
@@ -129,26 +169,9 @@ export function NotificationsFeed({
           currentFilter={currentFilter}
           onChange={handleTabChange}
         />
-
-        {unreadCount > 0 && (
-          <button
-            type="button"
-            onClick={handleMarkAllAsRead}
-            disabled={isPending}
-            className="mr-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            title="Mark all as read"
-          >
-            {isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <CheckCheck className="size-4" />
-            )}
-            <span className="hidden sm:inline">Mark all read</span>
-          </button>
-        )}
       </div>
 
-      <div className="divide-y divide-border">
+      <div className="divide-y border-b border-border">
         {displayItems.length === 0 ? (
           <NotificationsEmptyState filter={currentFilter} />
         ) : (
@@ -157,7 +180,7 @@ export function NotificationsFeed({
               key={
                 item.kind === "single"
                   ? item.notification.id
-                  : `follow-group-${item.notifications[0]?.id}`
+                  : `group-${item.notifications[0]?.id}`
               }
               item={item}
               locale={locale}
@@ -167,13 +190,13 @@ export function NotificationsFeed({
         )}
       </div>
 
-      {nextCursor && (
+      {nextCvrs0r && (
         <div className="flex justify-center border-t border-border p-4">
           <button
             type="button"
             onClick={handleLoadMore}
             disabled={isLoadingMore}
-            className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted disabled:opacity-50"
           >
             {isLoadingMore ? (
               <>
@@ -189,3 +212,6 @@ export function NotificationsFeed({
     </div>
   );
 }
+
+// برای سازگاری کامل هم با import { NotificationsFeed } و هم با import NotificationsFeed
+export default NotificationsFeed;
