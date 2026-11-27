@@ -5,7 +5,10 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { Badge } from "@prisma/client";
+import { BadgeCheck } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { markNotificationAsRead } from "@/lib/notifications/actions";
 import { getNotificationPresentation } from "./NotificationPresentation";
 import { NotificationPostPreview } from "./NotificationPostPreview";
@@ -21,6 +24,38 @@ interface NotificationItemCardProps {
 }
 
 type Actor = NonNullable<NotificationItem["actor"]>;
+
+const badgeConfig: Record<Badge, { className: string } | null> = {
+  NONE: null,
+  BLUE: { className: "text-blue-500" },
+  GOLD: { className: "text-amber-400" },
+  GREY: { className: "text-neutral-400" },
+  DEVELOPER: { className: "text-emerald-500" },
+};
+
+function ActorVerifiedBadge({ badge }: { badge?: Badge | null }) {
+  if (!badge) return null;
+  const config = badgeConfig[badge];
+  if (!config) return null;
+
+  return (
+    <BadgeCheck
+      size={14}
+      className={cn("inline-block shrink-0 align-middle", config.className)}
+      fill="none"
+      aria-hidden="true"
+    />
+  );
+}
+
+function ActorName({ actor }: { actor: Actor }) {
+  return (
+    <span className="inline-flex items-center gap-1 font-semibold text-foreground">
+      <span>{actor.fullName || actor.username}</span>
+      <ActorVerifiedBadge badge={actor.badge} />
+    </span>
+  );
+}
 
 function getNotificationHref(
   notification: NotificationItem,
@@ -50,7 +85,7 @@ function getNotificationHref(
 
 function ActorAvatar({ actor }: { actor: Actor }) {
   return (
-    <span className="relative inline-flex size-9 shrink-0 overflow-hidden rounded-full bg-muted border-2 border-background">
+    <span className="relative inline-flex size-9 shrink-0 overflow-hidden rounded-full border-2 border-background bg-muted">
       {actor.avatarUrl ? (
         <Image
           src={actor.avatarUrl}
@@ -89,7 +124,8 @@ export function NotificationItemCard({
   const [isMarkingRead, setIsMarkingRead] = useState(false);
 
   const isGroup = item.kind !== "single";
-  const notifications = item.kind === "single" ? [item.notification] : item.notifications;
+  const notifications =
+    item.kind === "single" ? [item.notification] : item.notifications;
 
   const firstNotification = notifications[0];
   const unreadIds = notifications
@@ -155,19 +191,13 @@ export function NotificationItemCard({
     } else if (otherActorsCount === 0) {
       message = (
         <>
-          <strong className="font-semibold text-foreground">
-            {firstActor.fullName || firstActor.username}
-          </strong>{" "}
-          {actionText}
+          <ActorName actor={firstActor} /> {actionText}
         </>
       );
     } else {
       message = (
         <>
-          <strong className="font-semibold text-foreground">
-            {firstActor.fullName || firstActor.username}
-          </strong>{" "}
-          and {otherActorsCount}{" "}
+          <ActorName actor={firstActor} /> and {otherActorsCount}{" "}
           {otherActorsCount === 1 ? "other" : "others"} {actionText}
         </>
       );
@@ -181,19 +211,13 @@ export function NotificationItemCard({
     } else if (otherActorsCount === 0) {
       message = (
         <>
-          <strong className="font-semibold text-foreground">
-            {firstActor.fullName || firstActor.username}
-          </strong>{" "}
-          started following you
+          <ActorName actor={firstActor} /> started following you
         </>
       );
     } else {
       message = (
         <>
-          <strong className="font-semibold text-foreground">
-            {firstActor.fullName || firstActor.username}
-          </strong>{" "}
-          and {otherActorsCount}{" "}
+          <ActorName actor={firstActor} /> and {otherActorsCount}{" "}
           {otherActorsCount === 1 ? "other" : "others"} followed you
         </>
       );
@@ -201,10 +225,7 @@ export function NotificationItemCard({
   } else if (firstNotification.actor) {
     message = (
       <>
-        <strong className="font-semibold text-foreground">
-          {firstNotification.actor.fullName || firstNotification.actor.username}
-        </strong>{" "}
-        {presentation.text}
+        <ActorName actor={firstNotification.actor} /> {presentation.text}
       </>
     );
   } else {

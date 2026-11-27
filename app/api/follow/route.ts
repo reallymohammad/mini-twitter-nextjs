@@ -7,38 +7,32 @@ import { createNotification } from "@/lib/notifications/service";
 
 const MAX_ATTEMPTS = 3;
 
+type FollowStatus = "PENDING" | "ACCEPTED";
+type FollowNotificationType = "FOLLOW" | "FOLLOW_REQUEST" | null;
+
 export async function POST(req: NextRequest) {
   const currentUser = await getCurrentUser();
 
   if (!currentUser) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => null);
   const targetUserId = body?.targetUserId;
 
   if (typeof targetUserId !== "string" || !targetUserId.trim()) {
-    return NextResponse.json(
-      { error: "targetUserId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "targetUserId is required" }, { status: 400 });
   }
 
   if (targetUserId === currentUser.id) {
-    return NextResponse.json(
-      { error: "Cannot follow yourself" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Cannot follow yourself" }, { status: 400 });
   }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let followResult:
       | {
-          status: string;
-          shouldNotify: boolean;
+          status: FollowStatus;
+          notificationType: FollowNotificationType;
         }
       | null;
 
@@ -53,9 +47,7 @@ export async function POST(req: NextRequest) {
             select: { isPrivate: true },
           });
 
-          if (!targetUser) {
-            return null;
-          }
+          if (!targetUser) return null;
 
           const where = {
             followerId_followingId: {
@@ -70,7 +62,7 @@ export async function POST(req: NextRequest) {
           });
 
           // فالو پذیرفته‌شده با درخواست تکراری به PENDING برنمی‌گردد.
-          const nextStatus =
+          const nextStatus: FollowStatus =
             existingFollow?.status === "ACCEPTED"
               ? "ACCEPTED"
               : targetUser.isPrivate
@@ -90,10 +82,20 @@ export async function POST(req: NextRequest) {
             select: { status: true },
           });
 
+          // فقط یکبار نوتیف بساز؛ و نوع نوتیف باید مطابق وضعیت باشد
+          // - private => PENDING => FOLLOW_REQUEST
+          // - public  => ACCEPTED => FOLLOW
+          // درخواست/فالو تکراری => null
+          const notificationType: FollowNotificationType =
+            existingFollow
+              ? null
+              : follow.status === "PENDING"
+                ? "FOLLOW_REQUEST"
+                : "FOLLOW";
+
           return {
-            status: follow.status,
-            // درخواست تکراری نباید نوتیفیکیشن تکراری بسازد.
-            shouldNotify: !existingFollow,
+            status: follow.status as FollowStatus,
+            notificationType,
           };
         },
         {
@@ -105,42 +107,30 @@ export async function POST(req: NextRequest) {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         (error.code === "P2034" || error.code === "P2002");
 
-      if (isRetryable && attempt < MAX_ATTEMPTS) {
-        continue;
-      }
+      if (isRetryable && attempt < MAX_ATTEMPTS) continue;
 
       if (isRetryable) {
-        return NextResponse.json(
-          { error: "Follow conflict; please retry" },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: "Follow conflict; please retry" }, { status: 409 });
       }
 
       console.error("Follow POST error:", error);
-
-      return NextResponse.json(
-        { error: "Internal Server Error" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 
     if (followResult === null) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (followResult.shouldNotify) {
+    if (followResult.notificationType) {
       try {
         await createNotification({
-          type: "FOLLOW",
+          type: followResult.notificationType,
           recipientId: targetUserId,
           actorId: currentUser.id,
         });
       } catch (notificationError) {
         console.error(
-          "[FOLLOW] Notification creation failed:",
+          `[${followResult.notificationType}] Notification creation failed:`,
           notificationError
         );
       }
@@ -152,30 +142,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json(
-    { error: "Follow conflict; please retry" },
-    { status: 409 }
-  );
+  return NextResponse.json({ error: "Follow conflict; please retry" }, { status: 409 });
 }
 
 export async function DELETE(req: NextRequest) {
   const currentUser = await getCurrentUser();
 
   if (!currentUser) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => null);
   const targetUserId = body?.targetUserId;
 
   if (typeof targetUserId !== "string" || !targetUserId.trim()) {
-    return NextResponse.json(
-      { error: "targetUserId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "targetUserId is required" }, { status: 400 });
   }
 
   await prisma.follow.deleteMany({

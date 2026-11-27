@@ -13,28 +13,28 @@ import { groupNotifications } from "./groupNotifications";
 import { NotificationItemCard } from "./NotificationItemCard";
 import { NotificationTabs } from "./NotificationTabs";
 import { NotificationsEmptyState } from "./NotificationsEmptyState";
-import type { NotificationItem } from "./types";
+import type { NotificationFilter, NotificationItem } from "./types";
 
 export interface NotificationsFeedProps {
   locale: string;
-  currentFilter: "ALL" | "MENTIONS";
+  currentFilter: NotificationFilter;
   initialNotifications: NotificationItem[];
-  initialNextCvrs0r?: string | null;
+  initialNextCursor?: string | null;
 }
 
 export function NotificationsFeed({
   locale,
   currentFilter,
   initialNotifications,
-  initialNextCvrs0r,
+  initialNextCursor,
 }: NotificationsFeedProps) {
   const router = useRouter();
 
   const [notifications, setNotifications] =
     useState<NotificationItem[]>(initialNotifications);
 
-  const [nextCvrs0r, setNextCvrs0r] = useState<string | null>(
-    initialNextCvrs0r ?? null
+  const [nextCursor, setNextCursor] = useState<string | null>(
+    initialNextCursor ?? null,
   );
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -45,6 +45,7 @@ export function NotificationsFeed({
 
   useEffect(() => {
     isMountedRef.current = true;
+
     return () => {
       isMountedRef.current = false;
     };
@@ -52,48 +53,61 @@ export function NotificationsFeed({
 
   useEffect(() => {
     setNotifications(initialNotifications);
-    setNextCvrs0r(initialNextCvrs0r ?? null);
-  }, [initialNotifications, initialNextCvrs0r, currentFilter]);
+    setNextCursor(initialNextCursor ?? null);
+  }, [initialNotifications, initialNextCursor, currentFilter]);
 
   const unreadIdsKey = useMemo(() => {
     const ids = notifications
-      .filter((n) => !n.isRead)
-      .map((n) => n.id)
+      .filter((notification) => !notification.isRead)
+      .map((notification) => notification.id)
       .sort();
 
     return ids.length > 0 ? ids.join("|") : null;
   }, [notifications]);
 
-  // نمایش اولیه نوتیف‌ها با هایلایت و سپس علامت‌گذاری و رفع هایلایت پس از ۱.۵ ثانیه
+  // ابتدا اعلان‌ها با هایلایت نمایش داده می‌شوند؛
+  // سپس اعلان‌های همین تب پس از ۱.۵ ثانیه خوانده می‌شوند.
   useEffect(() => {
     if (!unreadIdsKey) return;
-    if (autoReadInFlightRef.current) return;
-    if (autoReadKeyRef.current === unreadIdsKey) return;
 
-    autoReadKeyRef.current = unreadIdsKey;
+    const readKey = `${currentFilter}:${unreadIdsKey}`;
+
+    if (autoReadInFlightRef.current) return;
+    if (autoReadKeyRef.current === readKey) return;
+
+    autoReadKeyRef.current = readKey;
     autoReadInFlightRef.current = true;
 
     const idsToMark = new Set(unreadIdsKey.split("|"));
+    let requestStarted = false;
 
     const timer = setTimeout(() => {
-      if (!isMountedRef.current) return;
+      requestStarted = true;
+
+      if (!isMountedRef.current) {
+        autoReadInFlightRef.current = false;
+        return;
+      }
 
       const run = async () => {
         try {
-          await markAllNotificationsAsRead();
+          await markAllNotificationsAsRead(currentFilter);
 
           if (!isMountedRef.current) return;
 
           setNotifications((current) =>
-            current.map((n) =>
-              idsToMark.has(n.id) && !n.isRead ? { ...n, isRead: true } : n
-            )
+            current.map((notification) =>
+              idsToMark.has(notification.id) && !notification.isRead
+                ? { ...notification, isRead: true }
+                : notification,
+            ),
           );
 
           router.refresh();
         } catch (error) {
           console.error("Failed to auto mark notifications as read:", error);
-          if (autoReadKeyRef.current === unreadIdsKey) {
+
+          if (autoReadKeyRef.current === readKey) {
             autoReadKeyRef.current = null;
           }
         } finally {
@@ -106,13 +120,25 @@ export function NotificationsFeed({
 
     return () => {
       clearTimeout(timer);
-    };
-  }, [unreadIdsKey, router]);
 
-  const handleTabChange = (filter: "ALL" | "MENTIONS") => {
+      // اگر تب عوض شد و تایمر هنوز اجرا نشده بود،
+      // تب جدید می‌تواند تایمر خودش را بسازد.
+      if (!requestStarted) {
+        autoReadInFlightRef.current = false;
+
+        if (autoReadKeyRef.current === readKey) {
+          autoReadKeyRef.current = null;
+        }
+      }
+    };
+  }, [unreadIdsKey, currentFilter, router]);
+
+  const handleTabChange = (filter: NotificationFilter) => {
     if (filter === currentFilter) return;
 
-    const query = filter === "MENTIONS" ? "?filter=MENTIONS" : "";
+    const query =
+      filter === "ALL" ? "" : `?filter=${encodeURIComponent(filter)}`;
+
     router.push(`/${locale}/notifications${query}`);
   };
 
@@ -120,20 +146,22 @@ export function NotificationsFeed({
     const readIds = new Set(ids);
 
     setNotifications((current) =>
-      current.map((n) =>
-        readIds.has(n.id) && !n.isRead ? { ...n, isRead: true } : n
-      )
+      current.map((notification) =>
+        readIds.has(notification.id) && !notification.isRead
+          ? { ...notification, isRead: true }
+          : notification,
+      ),
     );
   }, []);
 
   const handleLoadMore = async () => {
-    if (!nextCvrs0r || isLoadingMore) return;
+    if (!nextCursor || isLoadingMore) return;
 
     setIsLoadingMore(true);
 
     try {
       const result = await getNotifications({
-        cvrs0r: nextCvrs0r,
+        cursor: nextCursor,
         limit: 20,
         filter: currentFilter,
       });
@@ -141,16 +169,18 @@ export function NotificationsFeed({
       if (!isMountedRef.current) return;
 
       setNotifications((current) => {
-        const existingIds = new Set(current.map((n) => n.id));
+        const existingIds = new Set(
+          current.map((notification) => notification.id),
+        );
 
         const newNotifications = result.notifications.filter(
-          (n) => !existingIds.has(n.id)
+          (notification) => !existingIds.has(notification.id),
         );
 
         return [...current, ...newNotifications];
       });
 
-      setNextCvrs0r(result.nextCvrs0r ?? null);
+      setNextCursor(result.nextCursor ?? null);
     } catch (error) {
       console.error("Failed to load more notifications:", error);
     } finally {
@@ -173,7 +203,13 @@ export function NotificationsFeed({
 
       <div className="divide-y border-b border-border">
         {displayItems.length === 0 ? (
-          <NotificationsEmptyState filter={currentFilter} />
+          currentFilter === "VERIFIED" ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No verified notifications yet.
+            </div>
+          ) : (
+            <NotificationsEmptyState filter={currentFilter} />
+          )
         ) : (
           displayItems.map((item) => (
             <NotificationItemCard
@@ -190,7 +226,7 @@ export function NotificationsFeed({
         )}
       </div>
 
-      {nextCvrs0r && (
+      {nextCursor && (
         <div className="flex justify-center border-t border-border p-4">
           <button
             type="button"
@@ -213,5 +249,4 @@ export function NotificationsFeed({
   );
 }
 
-// برای سازگاری کامل هم با import { NotificationsFeed } و هم با import NotificationsFeed
 export default NotificationsFeed;

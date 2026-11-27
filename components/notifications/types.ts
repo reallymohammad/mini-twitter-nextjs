@@ -1,16 +1,19 @@
 // components/notifications/types.ts
-import type { NotificationType } from "@prisma/client";
+import type { Badge, NotificationType } from "@prisma/client";
+
+export type NotificationFilter = "ALL" | "VERIFIED" | "MENTIONS";
 
 export interface NotificationActor {
   id: string;
   username: string;
   fullName: string | null;
   avatarUrl: string | null;
+  badge?: Badge | null;
 }
 
 export interface NotificationPost {
   id: string;
-  content: string;
+  content: string | null;
 }
 
 export interface NotificationMessage {
@@ -24,7 +27,7 @@ export interface NotificationItem {
   isRead: boolean;
   createdAt: Date | string;
   recipientId: string;
-  actorId: string;
+  actorId: string | null;
   postId?: string | null;
   messageId?: string | null;
   actor?: NotificationActor | null;

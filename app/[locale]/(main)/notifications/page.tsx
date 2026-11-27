@@ -2,14 +2,30 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, Settings } from "lucide-react";
+
+import { NotificationsFeed } from "@/components/notifications/NotificationsFeed";
+import type { NotificationFilter } from "@/components/notifications/types";
+import { getNotifications } from "@/lib/notifications/actions";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getNotifications } from "@/lib/notifications/actions";
-import { NotificationsFeed } from "@/components/notifications/NotificationsFeed";
 
 interface PageProps {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ filter?: "ALL" | "MENTIONS" }>;
+  searchParams: Promise<{ filter?: string }>;
+}
+
+function getNotificationFilter(filter?: string): NotificationFilter {
+  switch (filter) {
+    case "VERIFIED":
+      return "VERIFIED";
+
+    case "MENTIONS":
+      return "MENTIONS";
+
+    case "ALL":
+    default:
+      return "ALL";
+  }
 }
 
 export default async function NotificationsPage({
@@ -17,32 +33,35 @@ export default async function NotificationsPage({
   searchParams,
 }: PageProps) {
   const { locale } = await params;
-  const { filter = "ALL" } = await searchParams;
+  const { filter } = await searchParams;
 
   const currentUser = await getCurrentUser();
+
   if (!currentUser) {
     redirect(`/${locale}/login`);
   }
 
-  // ۱) تعداد درخواست‌های فالو در انتظار
-  const pendingRequestsCount = await prisma.follow.count({
-    where: {
-      followingId: currentUser.id,
-      status: "PENDING",
-    },
-  });
+  const currentFilter = getNotificationFilter(filter);
 
-  // ۲) دریافت لیست اولیه اعلان‌ها
-  const initialData = await getNotifications({
-    limit: 20,
-    filter: filter === "MENTIONS" ? "MENTIONS" : "ALL",
-  });
+  const [pendingRequestsCount, initialData] = await Promise.all([
+    prisma.follow.count({
+      where: {
+        followingId: currentUser.id,
+        status: "PENDING",
+      },
+    }),
+    getNotifications({
+      limit: 20,
+      filter: currentFilter,
+    }),
+  ]);
 
   return (
     <div className="min-h-screen border-x border-border pb-16">
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/80 px-4 py-3 backdrop-blur">
         <h1 className="text-xl font-bold">Notifications</h1>
+
         <Link
           href={`/${locale}/settings/notifications`}
           className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
@@ -62,6 +81,7 @@ export default async function NotificationsPage({
             <p className="text-sm font-semibold text-foreground">
               Follow requests
             </p>
+
             <p className="mt-0.5 text-xs text-muted-foreground">
               {pendingRequestsCount} pending{" "}
               {pendingRequestsCount === 1 ? "request" : "requests"}
@@ -77,9 +97,9 @@ export default async function NotificationsPage({
 
       <NotificationsFeed
         locale={locale}
-        currentFilter={filter === "MENTIONS" ? "MENTIONS" : "ALL"}
+        currentFilter={currentFilter}
         initialNotifications={initialData.notifications}
-        initialNextCursor={initialData.nextCursor ?? null} // ✅ فقط nextCursor
+        initialNextCursor={initialData.nextCursor ?? null}
       />
     </div>
   );
