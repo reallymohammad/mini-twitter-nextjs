@@ -1,10 +1,10 @@
 "use server";
 
-import { NotificationType, Prisma, FollowStatus } from "@prisma/client";
+import { FollowStatus, NotificationType, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
-import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/session";
 
 export type NotificationFilter = "ALL" | "VERIFIED" | "MENTIONS";
 
@@ -48,16 +48,18 @@ function getSafeLimit(limit: number): number {
 function isVerifiedBadge(badge: unknown): boolean {
   if (typeof badge === "string") {
     const value = badge.trim().toUpperCase();
+
     return (
       value.length > 0 &&
       !["NONE", "NO_BADGE", "UNVERIFIED", "NOT_VERIFIED"].includes(value)
     );
   }
+
   return Boolean(badge);
 }
 
 /**
- * ساخت شرط پایه دیتابیس همراه با فیلترهای امنیتی بلاک، میوت و پرایوت
+ * شرط پایهٔ واکشی اعلان‌ها، همراه با فیلترهای بلاک، میوت و soft delete.
  */
 function buildNotificationWhere(
   recipientId: string,
@@ -66,19 +68,16 @@ function buildNotificationWhere(
 ): Prisma.NotificationWhereInput {
   return {
     recipientId,
+    deletedAt: null,
     ...(unreadOnly ? { isRead: false } : {}),
     ...(filter === "MENTIONS"
       ? { type: NotificationType.MENTION }
       : { type: { not: NotificationType.MESSAGE } }),
-    // فیلتر امنیتی: عدم نمایش اعلان از کاربران بلاک‌شده یا میوت‌شده
     actor: {
       isNot: {
         OR: [
-          // کاربرانی که گیرنده آن‌ها را بلاک کرده است
           { blockedBy: { some: { blockerId: recipientId } } },
-          // کاربرانی که گیرنده را بلاک کرده‌اند
           { blocking: { some: { blockedId: recipientId } } },
-          // کاربرانی که توسط گیرنده میوت شده‌اند
           { mutedBy: { some: { muterId: recipientId } } },
         ],
       },
@@ -87,8 +86,8 @@ function buildNotificationWhere(
 }
 
 /**
- * بررسی اینکه آیا تعاملِ یک اکانت پرایوت معتبر است یا خیر
- * (اگر اکانت actor پرایوت باشد، گیرنده باید حتماً او را فالو کرده و وضعیت ACCEPTED داشته باشد)
+ * اعلان تعامل محتواییِ کاربر پرایوت فقط وقتی نمایش داده می‌شود
+ * که گیرنده، فالوئر تأییدشدهٔ او باشد.
  */
 async function filterValidNotifications(
   recipientId: string,
@@ -96,7 +95,6 @@ async function filterValidNotifications(
 ): Promise<NotificationWithRelations[]> {
   const validNotifications: NotificationWithRelations[] = [];
 
-  // انواع تعاملی که برای اکانت‌های پرایوت نیاز به بررسی فالو دارند
   const privateContentTypes: NotificationType[] = [
     NotificationType.LIKE,
     NotificationType.REPOST,
@@ -106,13 +104,14 @@ async function filterValidNotifications(
   ];
 
   for (const notification of notifications) {
-    // اگر اعلان actor ندارد یا نوع آن جزء تعاملات محتوایی حساس نیست، عبور کن
-    if (!notification.actor || !privateContentTypes.includes(notification.type)) {
+    if (
+      !notification.actor ||
+      !privateContentTypes.includes(notification.type)
+    ) {
       validNotifications.push(notification);
       continue;
     }
 
-    // اگر اکانت actor پرایوت است، بررسی می‌کنیم که آیا گیرنده او را فالو کرده است یا خیر
     if (notification.actor.isPrivate) {
       const follow = await prisma.follow.findUnique({
         where: {
@@ -124,7 +123,6 @@ async function filterValidNotifications(
         select: { status: true },
       });
 
-      // اگر فالو نکرده یا درخواستش تایید نشده (ACCEPTED نیست)، این نوتیفیکیشن نباید نمایش داده شود
       if (!follow || follow.status !== FollowStatus.ACCEPTED) {
         continue;
       }
@@ -138,7 +136,7 @@ async function filterValidNotifications(
 
 export async function getNotifications({
   cursor,
-  limit = 2,
+  limit = 20,
   filter = "ALL",
 }: {
   cursor?: string;
@@ -168,7 +166,6 @@ export async function getNotifications({
 
     if (batch.length === 0) break;
 
-    // اعمال فیلترهای تکمیلی (مانند پرایوت بودن و ...) روی دسته‌ی خوانده شده
     const validatedBatch = await filterValidNotifications(user.id, batch);
 
     for (const notification of validatedBatch) {
@@ -198,12 +195,9 @@ export async function getUnreadNotificationsCount() {
   const user = await getCurrentUser();
   if (!user) return 0;
 
-  // شمارش اولیه با احتساب شرط‌های پایه‌ی بلاک و میوت
-  const rawCount = await prisma.notification.count({
+  return prisma.notification.count({
     where: buildNotificationWhere(user.id, "ALL", true),
   });
-
-  return rawCount;
 }
 
 export async function markAllNotificationsAsRead(
@@ -219,21 +213,24 @@ export async function markAllNotificationsAsRead(
     include: notificationInclude,
   });
 
-  const validatedUnread = await filterValidNotifications(user.id, unreadNotifications);
+  const validatedUnread = await filterValidNotifications(
+    user.id,
+    unreadNotifications,
+  );
 
-  let targetIds = validatedUnread.map((n) => n.id);
-
-  if (filter === "VERIFIED") {
-    targetIds = targetIds.filter((id) => {
-      const n = validatedUnread.find((item) => item.id === id);
-      return isVerifiedBadge(n?.actor?.badge);
-    });
-  }
+  const targetIds = validatedUnread
+    .filter(
+      (notification) =>
+        filter !== "VERIFIED" ||
+        isVerifiedBadge(notification.actor?.badge),
+    )
+    .map((notification) => notification.id);
 
   if (targetIds.length > 0) {
     await prisma.notification.updateMany({
       where: {
         recipientId: user.id,
+        deletedAt: null,
         isRead: false,
         id: { in: targetIds },
       },
@@ -246,15 +243,22 @@ export async function markAllNotificationsAsRead(
 
   return { success: true };
 }
+
 export async function markNotificationAsRead(notificationId: string) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
-  
+
   await prisma.notification.updateMany({
-    where: { id: notificationId, recipientId: user.id },
+    where: {
+      id: notificationId,
+      recipientId: user.id,
+      deletedAt: null,
+    },
     data: { isRead: true },
   });
-  
-  revalidatePath("/[locale]/notifications");
+
+  revalidatePath("/[locale]/notifications", "page");
+  revalidatePath("/[locale]", "layout");
+
   return { success: true };
 }

@@ -1,4 +1,4 @@
-import { Prisma, NotificationType } from "@prisma/client";
+import { NotificationType, Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
@@ -15,29 +15,21 @@ class BlockedInteractionError extends Error {}
 
 function notFoundResponse() {
   return NextResponse.json(
-    {
-      error: "Post not found",
-    },
-    {
-      status: 404,
-    }
+    { error: "Post not found" },
+    { status: 404 },
   );
 }
 
 export async function POST(
   _request: NextRequest,
-  { params }: Context
+  { params }: Context,
 ) {
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json(
-      {
-        error: "Unauthorized",
-      },
-      {
-        status: 401,
-      }
+      { error: "Unauthorized" },
+      { status: 401 },
     );
   }
 
@@ -92,14 +84,12 @@ export async function POST(
           }
         }
 
-        // مطابق منطق فعلی پروژه:
-        // ریپوست پست حساب خصوصی مجاز نیست.
+        // مطابق منطق فعلی پروژه، ری‌پست پست حساب خصوصی مجاز نیست.
         if (post.author.isPrivate) {
           throw new PrivacyViolationError();
         }
 
-        // اگر ریپوست تکراری باشد، P2002 ایجاد می‌شود
-        // و نوتیفیکیشن جدید ساخته نخواهد شد.
+        // ری‌پست تکراری P2002 می‌دهد و اعلان تازه ساخته نمی‌شود.
         await transaction.repost.create({
           data: {
             userId: user.id,
@@ -112,9 +102,7 @@ export async function POST(
             id: post.id,
           },
           data: {
-            repostCount: {
-              increment: 1,
-            },
+            repostCount: { increment: 1 },
           },
         });
 
@@ -124,12 +112,10 @@ export async function POST(
         };
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      }
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
     );
 
-    // کاربر نباید برای خودش نوتیفیکیشن دریافت کند.
     if (notificationTarget.recipientId !== user.id) {
       try {
         await createNotification({
@@ -139,21 +125,16 @@ export async function POST(
           postId: notificationTarget.postId,
         });
       } catch (notificationError) {
-        // خطای اعلان نباید باعث شکست عملیات ریپوست شود.
         console.error(
           "[REPOST] Notification creation failed:",
-          notificationError
+          notificationError,
         );
       }
     }
 
     return NextResponse.json(
-      {
-        reposted: true,
-      },
-      {
-        status: 201,
-      }
+      { reposted: true },
+      { status: 201 },
     );
   } catch (error) {
     if (error instanceof PostUnavailableError) {
@@ -163,67 +144,49 @@ export async function POST(
     if (error instanceof BlockedInteractionError) {
       return NextResponse.json(
         {
-          error:
-            "You cannot interact with this post due to block settings",
+          error: "You cannot interact with this post due to block settings",
           code: "BLOCKED_INTERACTION",
         },
-        {
-          status: 403,
-        }
+        { status: 403 },
       );
     }
 
     if (error instanceof PrivacyViolationError) {
       return NextResponse.json(
         {
-          error:
-            "Cannot repost a private account's post",
+          error: "Cannot repost a private account's post",
           code: "PRIVATE_POST_REPOST",
         },
-        {
-          status: 403,
-        }
+        { status: 403 },
       );
     }
 
-    // ریپوست تکراری
-    // در این حالت نباید اعلان جدید ساخته شود.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      return NextResponse.json({
-        reposted: true,
-      });
+      return NextResponse.json({ reposted: true });
     }
 
     console.error("Repost POST error:", error);
 
     return NextResponse.json(
-      {
-        error: "Internal Server Error",
-      },
-      {
-        status: 500,
-      }
+      { error: "Internal Server Error" },
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: Context
+  { params }: Context,
 ) {
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json(
-      {
-        error: "Unauthorized",
-      },
-      {
-        status: 401,
-      }
+      { error: "Unauthorized" },
+      { status: 401 },
     );
   }
 
@@ -239,6 +202,7 @@ export async function DELETE(
           },
           select: {
             id: true,
+            authorId: true,
           },
         });
 
@@ -253,33 +217,39 @@ export async function DELETE(
           },
         });
 
-        if (removed.count === 0) {
-          return;
+        if (removed.count > 0) {
+          await transaction.post.updateMany({
+            where: {
+              id: post.id,
+              repostCount: { gt: 0 },
+            },
+            data: {
+              repostCount: { decrement: 1 },
+            },
+          });
         }
 
-        await transaction.post.updateMany({
+        // ری‌پست حذف شد، اما رکورد اعلان برای احیای احتمالی نگه داشته می‌شود.
+        // این کار اعلان فعالِ باقی‌مانده از درخواست قبلی را هم پنهان می‌کند.
+        await transaction.notification.updateMany({
           where: {
-            id: post.id,
-            repostCount: {
-              gt: 0,
-            },
+            type: NotificationType.REPOST,
+            actorId: user.id,
+            recipientId: post.authorId,
+            postId: post.id,
+            deletedAt: null,
           },
           data: {
-            repostCount: {
-              decrement: 1,
-            },
+            deletedAt: new Date(),
           },
         });
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      }
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
     );
 
-    return NextResponse.json({
-      reposted: false,
-    });
+    return NextResponse.json({ reposted: false });
   } catch (error) {
     if (error instanceof PostUnavailableError) {
       return notFoundResponse();
@@ -288,12 +258,8 @@ export async function DELETE(
     console.error("Repost DELETE error:", error);
 
     return NextResponse.json(
-      {
-        error: "Internal Server Error",
-      },
-      {
-        status: 500,
-      }
+      { error: "Internal Server Error" },
+      { status: 500 },
     );
   }
 }

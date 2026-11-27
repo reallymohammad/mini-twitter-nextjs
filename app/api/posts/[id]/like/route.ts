@@ -15,7 +15,7 @@ export async function POST(_: NextRequest, { params }: Context) {
   if (!user) {
     return NextResponse.json(
       { error: "Unauthorized" },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
@@ -39,7 +39,7 @@ export async function POST(_: NextRequest, { params }: Context) {
       }
 
       // بررسی بلاک دوطرفه بین لایک‌کننده و نویسندهٔ پست
-       if (post.authorId !== user.id) {
+      if (post.authorId !== user.id) {
         const block = await tx.block.findFirst({
           where: {
             OR: [
@@ -79,14 +79,14 @@ export async function POST(_: NextRequest, { params }: Context) {
     if (result.status === "not-found") {
       return NextResponse.json(
         { error: "Post not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (result.status === "forbidden") {
       return NextResponse.json(
         { error: "Action blocked" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -100,13 +100,13 @@ export async function POST(_: NextRequest, { params }: Context) {
     } catch (notificationError) {
       console.error(
         "[LIKE] Notification creation failed:",
-        notificationError
+        notificationError,
       );
     }
 
     return NextResponse.json({ liked: true });
   } catch (error) {
-    // لایک تکراری؛ موفقیت اعلام می‌شود ولی نوتیفیکیشن جدیدی ساخته نمی‌شود.
+    // لایک تکراری: موفقیت اعلام می‌شود، بدون ساخت اعلان جدید.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -118,7 +118,92 @@ export async function POST(_: NextRequest, { params }: Context) {
 
     return NextResponse.json(
       { error: "Internal Server Error" },
-      { status: 500 }
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(_: NextRequest, { params }: Context) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
+  const { id: postId } = await params;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const post = await tx.post.findFirst({
+        where: {
+          id: postId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          authorId: true,
+        },
+      });
+
+      if (!post) {
+        return { status: "not-found" as const };
+      }
+
+      // فقط لایک خود کاربر حذف می‌شود.
+      const deletedLike = await tx.like.deleteMany({
+        where: {
+          userId: user.id,
+          postId: post.id,
+        },
+      });
+
+      if (deletedLike.count > 0) {
+        await tx.post.updateMany({
+          where: {
+            id: post.id,
+            likeCount: { gt: 0 },
+          },
+          data: {
+            likeCount: { decrement: 1 },
+          },
+        });
+      }
+
+      // اعلان را حذف فیزیکی نمی‌کنیم؛ برای لایک احتمالیِ بعدی نگه می‌داریم.
+      // حتی اگر خود لایک قبلاً حذف شده باشد، اعلان فعالِ باقی‌مانده پنهان می‌شود.
+      await tx.notification.updateMany({
+        where: {
+          type: "LIKE",
+          actorId: user.id,
+          recipientId: post.authorId,
+          postId: post.id,
+          deletedAt: null,
+        },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
+
+      return { status: "unliked" as const };
+    });
+
+    if (result.status === "not-found") {
+      return NextResponse.json(
+        { error: "Post not found" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({ liked: false });
+  } catch (error) {
+    console.error("Like DELETE error:", error);
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 },
     );
   }
 }

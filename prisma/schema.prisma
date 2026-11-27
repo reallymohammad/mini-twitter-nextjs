@@ -520,6 +520,9 @@ model Notification {
   type   NotificationType
   isRead Boolean          @default(false)
 
+  // ستون جدید برای سافت دلیت:
+  deletedAt DateTime?
+
   recipientId String
   recipient   User   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
 
@@ -537,9 +540,10 @@ model Notification {
 
   createdAt DateTime @default(now())
 
-  @@index([recipientId, createdAt(sort: Desc)])
+  // ایندکس‌ها را آپدیت می‌کنیم تا کوئری‌های فید سریع باشند:
+  @@index([recipientId, deletedAt, createdAt(sort: Desc)])
   @@index([recipientId, isRead])
-  @@index([recipientId, isRead, createdAt(sort: Desc)])
+  @@index([actorId, postId, type]) // برای جستجوی سریع در لایک/آنلایک
 }
 
 model MessageDeletion {
